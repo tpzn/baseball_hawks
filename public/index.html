@@ -688,8 +688,12 @@ function fieldSVG({id = '', pts = [], cur = null, sectors = null}){
   for (const p of pts) if (p.bt) {
     const o = (p.o || 1) * .75;
     if (p.bt === 'F') {
-      const dx = p.x - 150, dy = p.y - 232, D = Math.hypot(dx, dy) || 1, sg = dx >= 0 ? 1 : -1, off = .55 * D;
-      const cx = (150 + p.x) / 2 + sg * (-dy / D) * off, cy = (232 + p.y) / 2 + sg * (dx / D) * off;
+      // 軽い弧：頂点のふくらみは距離の約9%（制御点のずれ .18D）。打球の方向側へ曲げ、フェアゾーンからはみ出すなら反対側へ
+      const dx = p.x - 150, dy = p.y - 232, D = Math.hypot(dx, dy) || 1, off = .18 * D;
+      const ctl = sg => ({x:(150 + p.x) / 2 + sg * (-dy / D) * off, y:(232 + p.y) / 2 + sg * (dx / D) * off});
+      const fair = c => { const ax = .25 * 150 + .5 * c.x + .25 * p.x, ay = .25 * 232 + .5 * c.y + .25 * p.y; return Math.abs(Math.atan2(ax - 150, 232 - ay)) <= Math.PI / 4 && ay <= 232; };
+      let c = ctl(dx >= 0 ? 1 : -1); if (!fair(c)) c = ctl(dx >= 0 ? -1 : 1);
+      const cx = c.x, cy = c.y;
       s += `<path d="M150 232 Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${p.x} ${p.y}" fill="none" stroke="${p.c}" stroke-width="2.2" opacity="${o}"/>`;
     }
     else s += `<line x1="150" y1="232" x2="${p.x}" y2="${p.y}" stroke="${p.c}" stroke-width="${p.bt === 'L' ? 3.4 : 1.6}" ${p.bt === 'G' ? 'stroke-dasharray="5 3"' : ''} opacity="${o}"/>`;
