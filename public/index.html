@@ -1188,7 +1188,7 @@ function gameRecTab(g, p){
     : `<button class="chip" disabled aria-pressed="false"><span class="no">${x.no}</span>未定</button>`).join('');
   let h = `<div class="card"><div class="row between">
       <div><div class="lbl">試合を記録中</div><div style="font-weight:700;font-size:17px"><span class="num" style="font-size:22px">${g.date ? md(g.date) : ''}</span> ${esc(gameLabel(g))}</div></div>
-      <button class="btn ghost" data-act="recGameEnd">試合記録を終える</button></div></div>
+      <div class="row"><button class="btn ghost" data-act="gsum" data-v="${g.id}">試合の概況</button><button class="btn ghost" data-act="recGameEnd">試合記録を終える</button></div></div></div>
     <div class="card" style="gap:8px"><span class="lbl">打順（タップで選手を切り替え）</span><div class="players strip">${chips}</div></div>`;
   if (cur) {
     h += `<div class="card" style="gap:8px"><div class="row between"><b>${ci >= 0 ? esc(o[ci].no) + ' ' : ''}${esc(p.name)}</b><span class="hint">${(cur.bat || []).length}打席</span></div>
@@ -1205,6 +1205,67 @@ function gameRecTab(g, p){
   return h;
 }
 
+/* ---------- 試合の概況（選手を選ばず、その試合の全記録を集計） ---------- */
+function gameSessions(gid){
+  const g = gameOf(gid); if (!g) return [];
+  const order = (g.lineup || []).map(x => x.pid).concat(g.dh ? [g.pitcher] : []);
+  const rank = pid => { const i = order.indexOf(pid); return i < 0 ? 99 : i; };
+  return Object.entries(S.sessions).filter(([, s]) => s.gameId === gid).map(([id, s]) => ({id, ...s}))
+    .sort((a, b) => rank(a.playerId) - rank(b.playerId) || (a.createdAt || 0) - (b.createdAt || 0));
+}
+// 投手陣の集計。被打率の定義は個人の投球タブと同じ（打席が終わった球＝安打・凡打・失策・三振のうち安打の割合）
+function pitchSum(list){
+  const all = list.flatMap(s => s.pitch || []);
+  const ab = all.filter(x => x.k || ['h','o','e'].includes(x.r)).length, h = all.filter(x => x.r === 'h').length;
+  return {N:all.length, str:all.filter(x => (PR[x.r] || {}).s).length, AB:ab, H:h, K:all.filter(x => x.k).length,
+    BB:all.filter(x => x.bb).length, HBP:all.filter(x => x.r === 'hbp').length, BF:new Set(all.map(x => x.pa + ':' + (x.sid || ''))).size, AVG:div(h, ab)};
+}
+function gameSummary(gid){
+  const ss = gameSessions(gid);
+  const bats = ss.flatMap(s => s.bat || []);
+  const b = batStats(bats), f = fieldSum(ss).all;
+  const pit = pitchSum(ss.map(s => ({...s, pitch:(s.pitch || []).map(x => ({...x, sid:s.id}))})));
+  const dir = bats.filter(e => e.x != null && BAT[e.r]);
+  const sec = {L:{n:0, h:0}, C:{n:0, h:0}, R:{n:0, h:0}};
+  dir.forEach(e => { const c = sec[sector(e.x, e.y)]; c.n++; if (BAT[e.r].hit) c.h++; });
+  const bt = {G:0, F:0, L:0};
+  bats.forEach(e => { const k = BAT[e.r] && (e.bt || BAT[e.r].bt); if (k) bt[k]++; });
+  return {ss, b, f, fpct:div(f.ok, f.ok + f.err), pit, dir, sec, bt, none:bats.length - dir.length};
+}
+function gameSumSheet(){
+  const gid = ui.sheet.gid, g = gameOf(gid);
+  if (!g) return '';
+  const A = gameSummary(gid), nm = pid => S.players[pid] ? S.players[pid].name : '（不明）';
+  if (ui.sheet.who !== 'all' && !A.ss.some(s => s.playerId === ui.sheet.who)) ui.sheet.who = 'all';
+  const who = ui.sheet.who;
+  const pts = A.ss.filter(s => who === 'all' || s.playerId === who).flatMap(s => (s.bat || []).filter(e => e.x != null && BAT[e.r]).map(e => ({x:e.x, y:e.y, c:ptColor(e.r), r:5, o:.9})));
+  const secs = {}; for (const k in A.sec) secs[k] = A.sec[k].n ? `${A.sec[k].h}/${A.sec[k].n}` : '–';
+  const tiles = `<div class="tiles">
+      <div class="tile big"><div class="v">${f3(A.b.AVG)}</div><div class="k">チーム打率</div><div class="k">${A.b.AB}打数${A.b.H}安打</div></div>
+      <div class="tile"><div class="v">${f3(A.fpct)}</div><div class="k">守備率</div><div class="k">${A.f.ok + A.f.err}機会${A.f.err}失策</div></div>
+      <div class="tile"><div class="v">${f3(A.pit.AVG)}</div><div class="k">被打率</div><div class="k">${A.pit.AB}打数${A.pit.H}被安打</div></div>
+      <div class="tile"><div class="v">${f3(A.b.OBP)}</div><div class="k">出塁率</div><div class="k">${A.b.H + A.b.BB + A.b.HBP}出塁</div></div></div>`;
+  const rows = A.ss.map(s => { const b = batStats(s.bat || []), f = fieldSum([s]).all;
+    return `<tr><td class="l" style="font-weight:700">${esc(nm(s.playerId))}</td><td class="n">${b.AB}</td><td class="n">${b.H}</td><td class="n">${b.RBI}</td><td class="n">${b.BB + b.HBP}</td><td class="n">${b.K}</td><td class="n">${f.ok + f.err}</td><td class="n">${f.err}</td></tr>`; }).join('');
+  const t = A.b, tf = A.f;
+  const total = `<tr class="tot"><td class="l">合計</td><td class="n">${t.AB}</td><td class="n">${t.H}</td><td class="n">${t.RBI}</td><td class="n">${t.BB + t.HBP}</td><td class="n">${t.K}</td><td class="n">${tf.ok + tf.err}</td><td class="n">${tf.err}</td></tr>`;
+  const chip = (v, l) => `<button class="chip" data-act="gsumWho" data-v="${v}" aria-pressed="${who === v}">${l}</button>`;
+  return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
+    <h3>試合の概況</h3><p class="hint" style="margin-top:-6px">${g.date ? md(g.date) + ' ' : ''}${esc(gameLabel(g))}（記録のある選手 ${A.ss.length}人）</p>
+    ${A.ss.length ? `${tiles}
+    <div class="line-stats"><span>打席<b>${A.b.PA}</b></span><span>打点<b>${A.b.RBI}</b></span><span>四死球<b>${A.b.BB + A.b.HBP}</b></span><span>三振<b>${A.b.K}</b></span><span>長打<b>${A.b.D + A.b.T + A.b.HR}</b></span><span>OPS<b>${f3(A.b.OPS)}</b></span></div>
+    <div class="card" style="gap:8px"><h2>打球方向 <small>${pts.length}本・図の数字は 安打/打球数</small></h2>
+      <div class="players strip">${chip('all', '全員')}${A.ss.map(s => chip(s.playerId, esc(nm(s.playerId)))).join('')}</div>
+      ${fieldSVG({pts, sectors:secs})}
+      <div class="legend"><span><i style="background:var(--stitch)"></i>安打</span><span><i style="background:var(--ink)"></i>アウト</span><span><i style="background:var(--amber)"></i>失策・野選</span></div>
+      <div class="line-stats"><span>ゴロ<b>${A.bt.G}</b></span><span>フライ<b>${A.bt.F}</b></span><span>ライナー<b>${A.bt.L}</b></span>${A.none ? `<span>方向なし<b>${A.none}</b></span>` : ''}</div></div>
+    <div class="card" style="gap:8px"><h2>投手陣 <small>この試合の投球記録</small></h2>${A.pit.N ? `<div class="line-stats"><span>投球数<b>${A.pit.N}</b></span><span>ストライク率<b>${pct(div(A.pit.str, A.pit.N))}</b></span><span>対戦打者<b>${A.pit.BF}</b></span><span>奪三振<b>${A.pit.K}</b></span><span>四球<b>${A.pit.BB}</b></span><span>死球<b>${A.pit.HBP}</b></span></div>` : '<p class="hint">投球の記録はありません。</p>'}</div>
+    <div class="card" style="gap:8px"><h2>選手別 <small>打順どおり</small></h2><div class="tbl"><table style="min-width:0;font-size:12px"><thead><tr><th class="l">選手</th><th>打数</th><th>安打</th><th>打点</th><th>四死球</th><th>三振</th><th>守備機会</th><th>失策</th></tr></thead><tbody>${rows}${total}</tbody></table></div></div>
+    <p class="hint">打数は四死球・犠打・犠飛を除く打席。被打率は投球入力で打席が終わった球（安打・凡打・失策・三振）のうち安打の割合。守備率は(機会−失策)÷機会で、機会はゴロ・フライ・送球の成功とエラーの合計です。守備位置を付けていない回数記録も含みます。</p>`
+    : '<p class="hint">この試合の記録はまだありません。「この試合を記録する」から入力してください。</p>'}
+    <button class="btn ghost" data-act="closeSheet">閉じる</button></div></div>`;
+}
+
 function teamGames(){
   const list = Object.entries(S.games).map(([id, g]) => ({id, ...g})).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || 0) - (a.createdAt || 0));
   return `<div class="card" style="gap:8px"><button class="btn primary" data-act="newGame">＋ 試合を作る</button></div>
@@ -1214,7 +1275,7 @@ function teamGames(){
       <span class="t"><span style="display:block;font-weight:700">${esc(gameLabel(g))}${g.sample ? '<span class="tag" style="margin-left:6px">例</span>' : ''}</span>
         <span class="m">${esc(g.place || '場所未定')}</span></span>
       <span class="pill ${n === 9 ? 'game' : 'practice'}">スタメン ${n}/9${n === 9 ? ' ✓' : ''}</span></button>
-      <div class="row between" style="width:100%"><span class="hint">記録 ${rc}人</span><button class="btn sm" data-act="recGame" data-v="${g.id}">この試合を記録する</button></div></div>`; }).join('')}</div>`
+      <div class="row between" style="width:100%"><span class="hint">記録 ${rc}人</span><span class="row"><button class="btn sm ghost" data-act="gsum" data-v="${g.id}">試合の概況</button><button class="btn sm" data-act="recGame" data-v="${g.id}">この試合を記録する</button></span></div></div>`; }).join('')}</div>`
       : '<p class="hint">試合はまだありません。「試合を作る」でスタメンと打順を組めます。</p>'}</div>`;
 }
 function gameSheet(){
@@ -1247,6 +1308,7 @@ function gameSheet(){
       ${bench.length ? `<div class="abs">${bench.map(p => `<span class="ab">${esc(pLabel(p))}</span>`).join('')}</div>` : '<p class="hint">いません。</p>'}</div>
     <button class="btn ghost" data-act="gameCopy">スタメンをコピー（LINE用）</button>
     ${ui.sheet.copyText ? `<textarea id="gm-copy" data-nokeep readonly rows="9">${esc(ui.sheet.copyText)}</textarea><p class="hint">自動でコピーできませんでした。選択した文字をコピーしてください。</p>` : ''}
+    ${id ? `<button class="btn ghost" data-act="gsum" data-v="${id}">試合の概況を見る</button>` : ''}
     <button class="btn primary" data-act="recGameSheet">この試合を記録する</button>
     <button class="btn primary" data-act="saveGame">保存</button>
     ${id ? `<button class="btn ghost" style="color:var(--stitch)" data-act="deleteGame">${ui.confirm === 'gm:' + id ? 'もう一度押すと、この試合を削除します' : 'この試合を削除'}</button>` : ''}
@@ -1316,6 +1378,7 @@ function sheet(){
   if (ui.sheet.kind === 'vplay') return playSheet();
   if (ui.sheet.kind === 'menu') return menuSheet();
   if (ui.sheet.kind === 'game') return gameSheet();
+  if (ui.sheet.kind === 'gsum') return gameSumSheet();
   const p = ui.sheet.id ? S.players[ui.sheet.id] || {} : {};
   const opt = (v, cur, l) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`;
   return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
@@ -1374,6 +1437,8 @@ document.addEventListener('click', e => {
       if (ui.gameRec) { const g = recGame(); if (g && recOrder(g).some(x => x.pid === v)) ensureRecSession(); else ui.gameRec = null; }
     },
     recGame(){ return startGameRec(v); },
+    gsum(){ if (!S.games[v]) return false; ui.sheet = {kind:'gsum', gid:v, who:'all'}; ui.confirm = null; },
+    gsumWho(){ ui.sheet.who = v; },
     recGameSheet(){
       const d = ui.sheet.draft;
       if (!d.date) { toast('日付を入力してください'); return false; }
