@@ -49,6 +49,11 @@ textarea{resize:vertical;min-height:92px;line-height:1.5}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .chip[aria-pressed="true"] .no{color:var(--bg);opacity:.7}
 .chip.add{color:var(--grass);border-style:dashed}
+.strip .chip{min-height:44px}
+.chip .cnt{font-size:11px;color:var(--muted)}
+.chip[aria-pressed="true"] .cnt{color:var(--bg);opacity:.7}
+.chip[disabled]{opacity:.45;background:var(--sunk);cursor:default}
+.btn.sm{min-height:44px;padding:6px 12px;font-size:13px}
 .tag{font-size:10px;padding:1px 6px;border-radius:999px;background:var(--amber-soft);color:var(--amber);font-weight:700}
 
 main{max-width:620px;margin:0 auto;padding-block:14px 110px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
@@ -257,7 +262,7 @@ const ui = Object.assign({
   ftype:'all', fperiod:'all', hm:'share', nth:'all', hhand:'all',
   bat:{pt:null, bt:'G', rbi:0}, pitch:{zone:null, hand:'R'}, pos:null, fpos:'all',
   fses:'all', hlBat:null, hlPa:null, vfile:null,
-  sheet:null, confirm:null, fieldUndo:[]
+  sheet:null, confirm:null, fieldUndo:[], gameRec:null, recNo:null
 }, loadPrefs());
 function loadPrefs(){ try { const p = JSON.parse(localStorage.getItem('dn_prefs') || '{}'); return {pid:p.pid||null, tab:p.tab||'team', rec:p.rec||'bat', team:p.team||'stats'}; } catch { return {}; } }
 function savePrefs(){ try { localStorage.setItem('dn_prefs', JSON.stringify({pid:ui.pid, tab:ui.tab, rec:ui.rec, team:ui.team})); } catch {} }
@@ -464,11 +469,12 @@ function render(){
 }
 
 function topbar(p){
+  const hideChips = ui.tab === 'rec' && !!recGame();
   const chips = activePlayers().map(x => `<button class="chip" data-act="player" data-v="${x.id}" aria-pressed="${p && x.id === p.id}">
     ${x.number !== '' && x.number != null ? `<span class="no">${esc(x.number)}</span>` : ''}${esc(x.name)}${x.sample ? '<span class="tag">例</span>' : ''}</button>`).join('');
   return `<header class="top"><div class="top-in">
     <div class="brand"><b>Diamond<span>Note</span></b><small>${p ? '名前をもう一度タップで編集' : ''}</small></div>
-    <div class="players">${chips}<button class="chip add" data-act="addPlayer">＋ 選手</button></div>
+    ${hideChips ? '' : `<div class="players">${chips}<button class="chip add" data-act="addPlayer">＋ 選手</button></div>`}
   </div></header>`;
 }
 function tabbar(){
@@ -579,6 +585,8 @@ function pitchReview(s){
 
 /* ---------- 記録タブ ---------- */
 function recTab(p){
+  const rg = recGame();
+  if (rg) return gameRecTab(rg, p);
   const s = curSession(p.id);
   let h = '';
   if (!s || ui.creating) h += newSessionForm(!!s);
@@ -1073,7 +1081,7 @@ const posShort = k => k === 'DH' ? 'DH' : POS_SHORT[k] || '－';
 const pLabel = p => (p.number !== '' && p.number != null ? p.number + ' ' : '') + p.name;
 function gameDraft(g){
   const L = g.lineup || [];
-  return {date:g.date || '', opponent:g.opponent || '', place:g.place || '', memo:g.memo || '', dh:!!g.dh, pitcher:g.pitcher || '',
+  return {date:g.date || '', tournament:g.tournament || '', opponent:g.opponent || '', place:g.place || '', memo:g.memo || '', dh:!!g.dh, pitcher:g.pitcher || '',
     lineup:Array.from({length:9}, (_, i) => ({pid:(L[i] && L[i].pid) || '', pos:L[i] && validPos(String(L[i].pos)) ? String(L[i].pos) : DEF_POS[i]}))};
 }
 function benchOf(d){
@@ -1096,7 +1104,7 @@ function gameWarnings(d){
 function lineupText(d){
   const nm = id => S.players[id] ? S.players[id] : null;
   const lab = id => { const p = nm(id); return p ? pLabel(p) : '未定'; };
-  const head = [d.date ? md(d.date) : '', 'vs ' + (d.opponent || '未定')].filter(Boolean).join(' ') + (d.place ? `（${d.place}）` : '');
+  const head = [d.date ? md(d.date) : '', gameLabel(d)].filter(Boolean).join(' ') + (d.place ? `（${d.place}）` : '');
   const lines = [head];
   d.lineup.forEach((x, i) => lines.push(`${i + 1} (${posShort(x.pos)}) ${lab(x.pid)}`));
   if (d.dh) lines.push('P: ' + lab(d.pitcher));
@@ -1116,15 +1124,97 @@ function lineupMap(d){
   const dh = (d.lineup.find(x => x.pos === 'DH') || {}).pid;
   return s + '</svg>' + (d.dh ? `<p class="hint">DH: ${esc(dh && S.players[dh] ? S.players[dh].name : '未定')}</p>` : '');
 }
+/* ---------- 試合記録モード ---------- */
+function gameLabel(g){
+  const t = String((g && g.tournament) || '').trim(), o = String((g && g.opponent) || '').trim();
+  return [t, o ? 'vs ' + o : ''].filter(Boolean).join(' ') || '試合';
+}
+const gameOf = id => S.games[id] ? {id, ...S.games[id]} : null;
+function gameSession(g, pid, create){
+  const hit = Object.entries(S.sessions).find(([, s]) => s.gameId === g.id && s.playerId === pid);
+  if (hit) return {id:hit[0], ...hit[1]};
+  if (!create) return null;
+  const id = uid(), d = {playerId:pid, date:g.date, type:'game', memo:gameLabel(g), gameId:g.id, bat:[], fp:{}, pitch:[], closed:[], createdAt:Date.now()};
+  put('sessions', id, d);
+  return {id, ...d};
+}
+const gameRecCount = gid => Object.values(S.sessions).filter(s => s.gameId === gid).length;
+function recGame(){
+  if (!ui.gameRec) return null;
+  const g = gameOf(ui.gameRec);
+  if (!g) { ui.gameRec = null; return null; }
+  return g;
+}
+// 試合記録の並び: 打順1〜9（DH のときは投手 P を末尾に）。選手が未定・不明・退団のときは pid ''
+function recOrder(g){
+  const ok = id => id && S.players[id] && isActive(S.players[id]) ? id : '';
+  const L = g.lineup || [];
+  const out = Array.from({length:9}, (_, i) => ({no:String(i + 1), pid:ok(L[i] && L[i].pid)}));
+  if (g.dh) out.push({no:'P', pid:ok(g.pitcher)});
+  return out;
+}
+function recIdx(o){ return o[ui.recNo] && o[ui.recNo].pid === ui.pid ? ui.recNo : o.findIndex(x => x.pid && x.pid === ui.pid); }
+// 打順 i の次に打つ人（投手 P は打順に入らないので飛ばす・未定の枠も飛ばす）。いなければ -1
+function recNext(o, i){
+  const base = i >= 9 ? 8 : i;
+  for (let k = 1; k <= 9; k++) { const j = (base + k) % 9; if (o[j].pid) return j; }
+  return -1;
+}
+function recSelect(g, o, i){
+  ui.recNo = i; selectPlayer(o[i].pid);
+  ui.sid = gameSession(g, o[i].pid, true).id;
+}
+function startGameRec(gid){
+  const g = gameOf(gid); if (!g) return false;
+  const o = recOrder(g), i = o.findIndex(x => x.pid);
+  if (i < 0) { toast('スタメンに在籍の選手を入れてください'); return false; }
+  ui.gameRec = gid; ui.tab = 'rec'; ui.rec = 'bat'; ui.sheet = null; ui.confirm = null; dirty = false;
+  recSelect(g, o, i); window.scrollTo(0, 0);
+  toast(`${gameLabel(g)} の記録を始めます`);
+}
+function ensureRecSession(){
+  const g = recGame(); if (!g || !ui.pid) return;
+  const o = recOrder(g), i = recIdx(o);
+  if (i >= 0) { ui.recNo = i; ui.sid = gameSession(g, ui.pid, true).id; }
+}
+function paText(e){ return BAT[e.r].l + (e.x != null ? '・' + SEC[sector(e.x, e.y)] : ''); }
+function gameRecTab(g, p){
+  const o = recOrder(g), ci = recIdx(o);
+  const cur = ci >= 0 ? gameSession(g, p.id, false) : null;
+  if (cur && ui.sid !== cur.id) ui.sid = cur.id;
+  const nBat = pid => { const s = gameSession(g, pid, false); return s ? (s.bat || []).length : 0; };
+  const chips = o.map((x, i) => x.pid
+    ? `<button class="chip" data-act="recPick" data-v="${i}" aria-pressed="${i === ci}"><span class="no">${x.no}</span>${esc(S.players[x.pid].name)}<span class="cnt">${nBat(x.pid)}打席</span></button>`
+    : `<button class="chip" disabled aria-pressed="false"><span class="no">${x.no}</span>未定</button>`).join('');
+  let h = `<div class="card"><div class="row between">
+      <div><div class="lbl">試合を記録中</div><div style="font-weight:700;font-size:17px"><span class="num" style="font-size:22px">${g.date ? md(g.date) : ''}</span> ${esc(gameLabel(g))}</div></div>
+      <button class="btn ghost" data-act="recGameEnd">試合記録を終える</button></div></div>
+    <div class="card" style="gap:8px"><span class="lbl">打順（タップで選手を切り替え）</span><div class="players strip">${chips}</div></div>`;
+  if (cur) {
+    h += `<div class="card" style="gap:8px"><div class="row between"><b>${ci >= 0 ? esc(o[ci].no) + ' ' : ''}${esc(p.name)}</b><span class="hint">${(cur.bat || []).length}打席</span></div>
+      ${seg('rec', ui.rec, [['bat','打撃'],['field','守備'],['pitch','投球']])}</div>`;
+    h += ui.rec === 'bat' ? batInput(p, cur) : ui.rec === 'field' ? fieldInput(p, cur) : pitchInput(cur);
+  } else h += `<div class="card"><p class="hint">打順の選手をタップすると、その選手の記録を始められます。</p></div>`;
+  h += `<div class="card"><h2>この試合の打席一覧 <small>打順ごと</small></h2><div>
+    ${o.map((x, i) => {
+      if (!x.pid) return `<div class="rv"><span class="num" style="font-size:17px;font-weight:700;min-width:28px">${x.no}</span><span class="hint">未定</span></div>`;
+      const s = gameSession(g, x.pid, false), bats = s ? (s.bat || []) : [];
+      return `<div class="rv" aria-current="${i === ci}"><button class="t" data-act="recPick" data-v="${i}"><span class="num" style="font-size:17px;font-weight:700;min-width:28px">${x.no}</span>
+        <span style="min-width:0"><b>${esc(S.players[x.pid].name)}</b> <span class="m" style="display:inline;white-space:normal">${bats.length ? esc(bats.map(paText).join(' / ')) : '–'}</span></span></button></div>`;
+    }).join('')}</div></div>`;
+  return h;
+}
+
 function teamGames(){
   const list = Object.entries(S.games).map(([id, g]) => ({id, ...g})).sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || 0) - (a.createdAt || 0));
   return `<div class="card" style="gap:8px"><button class="btn primary" data-act="newGame">＋ 試合を作る</button></div>
   <div class="card"><h2>試合・スタメン <small>${list.length}試合</small></h2>
-    ${list.length ? `<div class="list">${list.map(g => { const n = (g.lineup || []).filter(x => x.pid).length;
-      return `<button class="item" data-act="editGame" data-v="${g.id}" style="min-height:56px"><span class="d">${g.date ? md(g.date) : '–'}</span>
-      <span class="t"><span style="display:block;font-weight:700">vs ${esc(g.opponent || '未定')}${g.sample ? '<span class="tag" style="margin-left:6px">例</span>' : ''}</span>
+    ${list.length ? `<div class="list">${list.map(g => { const n = (g.lineup || []).filter(x => x.pid).length, rc = gameRecCount(g.id);
+      return `<div class="item" style="flex-wrap:wrap;gap:4px 10px"><button data-act="editGame" data-v="${g.id}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:56px;text-align:left"><span class="d">${g.date ? md(g.date) : '–'}</span>
+      <span class="t"><span style="display:block;font-weight:700">${esc(gameLabel(g))}${g.sample ? '<span class="tag" style="margin-left:6px">例</span>' : ''}</span>
         <span class="m">${esc(g.place || '場所未定')}</span></span>
-      <span class="pill ${n === 9 ? 'game' : 'practice'}">スタメン ${n}/9${n === 9 ? ' ✓' : ''}</span></button>`; }).join('')}</div>`
+      <span class="pill ${n === 9 ? 'game' : 'practice'}">スタメン ${n}/9${n === 9 ? ' ✓' : ''}</span></button>
+      <div class="row between" style="width:100%"><span class="hint">記録 ${rc}人</span><button class="btn sm" data-act="recGame" data-v="${g.id}">この試合を記録する</button></div></div>`; }).join('')}</div>`
       : '<p class="hint">試合はまだありません。「試合を作る」でスタメンと打順を組めます。</p>'}</div>`;
 }
 function gameSheet(){
@@ -1141,8 +1231,9 @@ function gameSheet(){
       <button class="btn ghost" data-act="gameDown" data-v="${i}" ${i < 8 ? '' : 'disabled'}>↓ 下へ</button></div></div>`).join('');
   const w = gameWarnings(d), bench = benchOf(d);
   return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
-    <h3>${id ? '試合を編集' : '試合を作る'}</h3>
+    <h3>${id ? '試合を編集' : '試合を作る'}</h3>${id ? `<p class="hint" style="margin-top:-6px">${esc(gameLabel(d))}</p>` : ''}
     <div class="form"><label class="lbl" for="gm-date">日付</label><input type="date" id="gm-date" data-mf="date" data-nokeep value="${esc(d.date)}"></div>
+    <div class="form"><label class="lbl" for="gm-tour">大会名</label><input id="gm-tour" data-mf="tournament" data-nokeep value="${esc(d.tournament)}" placeholder="例：春季大会 1回戦"></div>
     <div class="form"><label class="lbl" for="gm-opp">相手</label><input id="gm-opp" data-mf="opponent" data-nokeep value="${esc(d.opponent)}" placeholder="例：○○ジュニアーズ"></div>
     <div class="form"><label class="lbl" for="gm-place">場所</label><input id="gm-place" data-mf="place" data-nokeep value="${esc(d.place)}" placeholder="例：△△グラウンド"></div>
     <div class="form"><label class="lbl" for="gm-memo">メモ</label><textarea id="gm-memo" data-mf="memo" data-nokeep rows="2">${esc(d.memo)}</textarea></div>
@@ -1156,6 +1247,7 @@ function gameSheet(){
       ${bench.length ? `<div class="abs">${bench.map(p => `<span class="ab">${esc(pLabel(p))}</span>`).join('')}</div>` : '<p class="hint">いません。</p>'}</div>
     <button class="btn ghost" data-act="gameCopy">スタメンをコピー（LINE用）</button>
     ${ui.sheet.copyText ? `<textarea id="gm-copy" data-nokeep readonly rows="9">${esc(ui.sheet.copyText)}</textarea><p class="hint">自動でコピーできませんでした。選択した文字をコピーしてください。</p>` : ''}
+    <button class="btn primary" data-act="recGameSheet">この試合を記録する</button>
     <button class="btn primary" data-act="saveGame">保存</button>
     ${id ? `<button class="btn ghost" style="color:var(--stitch)" data-act="deleteGame">${ui.confirm === 'gm:' + id ? 'もう一度押すと、この試合を削除します' : 'この試合を削除'}</button>` : ''}
     <button class="btn ghost" data-act="closeSheet">閉じる</button></div></div>`;
@@ -1247,6 +1339,15 @@ function sheet(){
 let toastT;
 function toast(m){ const t = $('#toast'); t.textContent = m; t.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => t.style.opacity = 0, 1800); }
 function selectPlayer(id){ ui.pid = id; ui.sid = null; ui.creating = false; ui.bat.pt = null; ui.pitch.zone = null; ui.pos = null; ui.fpos = 'all'; ui.fses = 'all'; ui.hlBat = null; ui.hlPa = null; savePrefs(); }
+function commitGame(){
+  const d = ui.sheet.draft;
+  if (!d.date) { toast('日付を入力してください'); return null; }
+  const id = ui.sheet.id || uid(), old = S.games[id] || {createdAt:Date.now()};
+  put('games', id, {...old, date:d.date, tournament:d.tournament.trim(), opponent:d.opponent.trim(), place:d.place.trim(), memo:d.memo.trim(), dh:d.dh, pitcher:d.dh ? d.pitcher : '',
+    lineup:d.lineup.map(x => ({pid:x.pid, pos:x.pos})), bench:benchOf(d).map(p => p.id)});
+  ui.sheet = null; ui.confirm = null; dirty = false; toast('保存しました');
+  return id;
+}
 let confirmT;
 function armConfirm(key){ ui.confirm = key; clearTimeout(confirmT); confirmT = setTimeout(() => { ui.confirm = null; render(); }, 3500); }
 function sess(){ return ui.sid && S.sessions[ui.sid] ? clone(S.sessions[ui.sid]) : null; }
@@ -1265,9 +1366,23 @@ document.addEventListener('click', e => {
   if (el.dataset.act === 'closeSheet' && e.target.closest('[data-stop]') && e.target !== el) return;
   const v = el.dataset.v;
   const A = {
-    tab(){ ui.tab = v; savePrefs(); window.scrollTo(0, 0); },
+    tab(){ ui.tab = v; savePrefs(); window.scrollTo(0, 0); if (v === 'rec') ensureRecSession(); },
     rec(){ ui.rec = v; savePrefs(); },
-    player(){ if (ui.pid === v) ui.sheet = {id:v}; else selectPlayer(v); },
+    player(){
+      if (ui.pid === v) { ui.sheet = {id:v}; return; }
+      selectPlayer(v);
+      if (ui.gameRec) { const g = recGame(); if (g && recOrder(g).some(x => x.pid === v)) ensureRecSession(); else ui.gameRec = null; }
+    },
+    recGame(){ return startGameRec(v); },
+    recGameSheet(){
+      const d = ui.sheet.draft;
+      if (!d.date) { toast('日付を入力してください'); return false; }
+      if (!recOrder({lineup:d.lineup, dh:d.dh, pitcher:d.pitcher}).some(x => x.pid)) { toast('スタメンに在籍の選手を入れてください'); return false; }
+      const id = commitGame(); if (!id) return false;
+      return startGameRec(id);
+    },
+    recGameEnd(){ ui.gameRec = null; ui.recNo = null; toast('試合の記録を終えました'); },
+    recPick(){ const g = recGame(); if (!g) return false; const o = recOrder(g), i = +v; if (!o[i] || !o[i].pid) return false; recSelect(g, o, i); },
     addPlayer(){ ui.sheet = {id:null}; },
     closeSheet(){ if (ui.vfile && ui.vfile.state === 'busy') return false; ui.sheet = null; ui.vfile = null; ui.confirm = null; dirty = false; },
     hlBat(){ ui.hlBat = ui.hlBat === +v ? null : +v; },
@@ -1382,7 +1497,7 @@ document.addEventListener('click', e => {
         .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || 0) - (a.createdAt || 0))[0];
       if (!prev) { toast('コピーできる前の試合がありません'); return false; }
       const p = gameDraft(prev), d = ui.sheet.draft;
-      d.lineup = p.lineup; d.pitcher = p.pitcher; d.dh = p.dh; toast(`${prev.date ? md(prev.date) : ''} vs ${prev.opponent || '未定'} のスタメンをコピーしました`);
+      d.lineup = p.lineup; d.pitcher = p.pitcher; d.dh = p.dh; toast(`${prev.date ? md(prev.date) : ''} ${gameLabel(prev)} のスタメンをコピーしました`);
     },
     gameCopy(){
       const t = lineupText(ui.sheet.draft);
@@ -1392,14 +1507,7 @@ document.addEventListener('click', e => {
       } catch {}
       fb(); return false;
     },
-    saveGame(){
-      const d = ui.sheet.draft;
-      if (!d.date) { toast('日付を入力してください'); return false; }
-      const id = ui.sheet.id || uid(), old = S.games[id] || {createdAt:Date.now()};
-      put('games', id, {...old, date:d.date, opponent:d.opponent.trim(), place:d.place.trim(), memo:d.memo.trim(), dh:d.dh, pitcher:d.dh ? d.pitcher : '',
-        lineup:d.lineup.map(x => ({pid:x.pid, pos:x.pos})), bench:benchOf(d).map(p => p.id)});
-      ui.sheet = null; ui.confirm = null; dirty = false; toast('保存しました');
-    },
+    saveGame(){ if (!commitGame()) return false; },
     deleteGame(){
       const id = ui.sheet.id;
       if (ui.confirm !== 'gm:' + id) { armConfirm('gm:' + id); return; }
@@ -1430,7 +1538,13 @@ document.addEventListener('click', e => {
       s.bat = (s.bat || []).concat([ev]);
       put('sessions', ui.sid, s);
       ui.bat.pt = null; ui.bat.rbi = 0;
-      toast(`${s.bat.length}打席目：${d.l}${ev.x != null ? '（' + SEC[sector(ev.x, ev.y)] + '）' : ''} を記録`);
+      let nx = '';
+      const rg = recGame();
+      if (rg) {
+        const o = recOrder(rg), i = recIdx(o), j = i >= 0 ? recNext(o, i) : -1;
+        if (j >= 0 && j !== i) { recSelect(rg, o, j); nx = `　次：${S.players[o[j].pid].name}`; }
+      }
+      toast(`${s.bat.length}打席目：${d.l}${ev.x != null ? '（' + SEC[sector(ev.x, ev.y)] + '）' : ''} を記録${nx}`);
     },
     batUndo(){ const s = sess(); if (!s || !s.bat.length) return; const r = s.bat.pop(); put('sessions', ui.sid, s); toast(`${BAT[r.r].l} を取り消しました`); },
     fld(){
@@ -1622,7 +1736,7 @@ function makeSample(){
     {name:'投球練習', min:20, focus:'pitch', note:'コースを意識'}, {name:'クールダウン', min:10, focus:'other', note:''}]});
   put('menus', uid(), {date:'', title:'土曜練習テンプレート（例）', memo:'', template:true, sample:true, createdAt:Date.now() + 1, items:[
     {name:'アップ', min:20, focus:'run', note:''}, {name:'シートノック', min:40, focus:'field', note:''}, {name:'紅白戦', min:60, focus:'other', note:''}]});
-  put('games', uid(), {date:today(), opponent:'サンプルズ（例）', place:'市民グラウンド（例）', memo:'', dh:false, pitcher:'', sample:true, createdAt:Date.now(),
+  put('games', uid(), {date:today(), tournament:'春季大会 1回戦（例）', opponent:'サンプルズ（例）', place:'市民グラウンド（例）', memo:'', dh:false, pitcher:'', sample:true, createdAt:Date.now(),
     lineup:DEF_POS.map((k, i) => ({pid:i < 3 ? ids[i] : '', pos:k})), bench:[]});
   ui.pid = ids[0]; ui.sid = null; savePrefs();
   toast('サンプルチームを作りました');
