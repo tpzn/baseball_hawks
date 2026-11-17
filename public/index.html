@@ -50,6 +50,22 @@ textarea{resize:vertical;min-height:92px;line-height:1.5}
 .chip[aria-pressed="true"] .no{color:var(--bg);opacity:.7}
 .chip.add{color:var(--grass);border-style:dashed}
 .strip .chip{min-height:44px}
+.chip.sm{min-height:36px;padding:3px 10px;font-size:14px;gap:4px}
+.strip .chip.sm{min-height:36px}
+.pbar{display:flex;gap:6px;align-items:center}
+.pcur{flex:1;min-width:0;display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);text-align:left;font-weight:700}
+.pcur .no{font-family:var(--f-num);color:var(--muted)}
+.pcur .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pcur .car{color:var(--muted);font-size:12px}
+.pcur[aria-expanded="true"]{background:var(--ink);color:var(--bg)}
+.pbar .chip{min-height:44px}
+.ppanel{position:absolute;left:0;right:0;top:100%;background:var(--surface);border-bottom:1px solid var(--line);box-shadow:0 10px 18px rgba(0,0,0,.18);max-height:60vh;overflow-y:auto;padding:8px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px))}
+.ppanel.in{position:static;box-shadow:none;border:1px solid var(--line);border-radius:12px;max-height:40vh;padding:8px}
+.prow{display:flex;align-items:center;gap:8px;padding:3px 0}
+.prow .pl{flex:none;width:44px;font-size:12px;color:var(--muted);font-weight:700}
+.prow .players{flex:1;min-width:0}
+.legend svg{vertical-align:middle;margin-right:4px}
+.legend .mk{color:var(--ink);font-size:13px;margin-right:2px}
 .chip .cnt{font-size:11px;color:var(--muted)}
 .chip[aria-pressed="true"] .cnt{color:var(--bg);opacity:.7}
 .chip[disabled]{opacity:.45;background:var(--sunk);cursor:default}
@@ -260,7 +276,7 @@ const S = { players:{}, sessions:{}, team:{}, menus:{}, games:{}, loaded:{}, mod
 const ui = Object.assign({
   pid:null, tab:'team', rec:'bat', team:'stats', pstat:'active', sortKey:'no', sortDir:'asc', sid:null, creating:false,
   ftype:'all', fperiod:'all', hm:'share', nth:'all', hhand:'all',
-  bat:{pt:null, bt:'G', rbi:0}, pitch:{zone:null, hand:'R'}, pos:null, fpos:'all',
+  bat:{pt:null, bt:'G', rbi:0, side:null}, pitch:{zone:null, hand:'R'}, pos:null, fpos:'all',
   fses:'all', hlBat:null, hlPa:null, vfile:null,
   sheet:null, confirm:null, fieldUndo:[], gameRec:null, recNo:null
 }, loadPrefs());
@@ -468,14 +484,22 @@ function render(){
   ui.sheetEnd = false;
 }
 
+const byGrade = list => list.slice().sort(byNo);
+function gradeRows(list, cur, act){
+  const g = x => { const n = parseInt(x.grade); return n >= 1 && n <= 6 ? n : 0; };
+  const rows = [];
+  for (const n of [6, 5, 4, 3, 2, 1, 0]) { const L = byGrade(list.filter(x => g(x) === n)); if (L.length) rows.push([n ? n + '年' : 'その他', L]); }
+  return rows.map(([l, L]) => `<div class="prow"><span class="pl">${l}</span><div class="players">${L.map(x =>
+    `<button class="chip sm" data-act="${act}" data-v="${x.id}" aria-pressed="${x.id === cur}">${x.number !== '' && x.number != null ? `<span class="no">${esc(x.number)}</span>` : ''}${esc(x.name)}${x.sample ? '<span class="tag">例</span>' : ''}</button>`).join('')}</div></div>`).join('');
+}
 function topbar(p){
   const hideChips = ui.tab === 'rec' && !!recGame();
-  const chips = activePlayers().map(x => `<button class="chip" data-act="player" data-v="${x.id}" aria-pressed="${p && x.id === p.id}">
-    ${x.number !== '' && x.number != null ? `<span class="no">${esc(x.number)}</span>` : ''}${esc(x.name)}${x.sample ? '<span class="tag">例</span>' : ''}</button>`).join('');
+  const cur = p ? `<button class="pcur" data-act="pickToggle" aria-expanded="${!!ui.pick}" aria-label="選手を選ぶ">${p.number !== '' && p.number != null ? `<span class="no">${esc(p.number)}</span>` : ''}<span class="nm">${esc(p.name)}</span><span class="car">${ui.pick ? '▲' : '▼'}</span></button>
+    <button class="chip" data-act="editCur" aria-label="選手を編集">編集</button>` : `<button class="pcur" data-act="pickToggle" aria-expanded="${!!ui.pick}"><span class="nm">選手を選ぶ</span><span class="car">▼</span></button>`;
   return `<header class="top"><div class="top-in">
-    <div class="brand"><b>Diamond<span>Note</span></b><small>${p ? '名前をもう一度タップで編集' : ''}</small></div>
-    ${hideChips ? '' : `<div class="players">${chips}<button class="chip add" data-act="addPlayer">＋ 選手</button></div>`}
-  </div></header>`;
+    <div class="brand"><b>Diamond<span>Note</span></b><small>${p ? '選手名をタップで切り替え' : ''}</small></div>
+    ${hideChips ? '' : `<div class="pbar">${cur}<button class="chip add" data-act="addPlayer">＋ 選手</button></div>`}
+  </div>${!hideChips && ui.pick ? `<div class="ppanel">${activePlayers().length ? gradeRows(activePlayers(), p && p.id, 'player') : '<p class="hint">選手がいません。</p>'}</div>` : ''}</header>`;
 }
 function tabbar(){
   const t = [['team','TEAM','チーム'], ['rec','REC','記録'], ['bat','BAT','打撃'], ['field','GLV','守備'], ['pitch','PIT','投球']];
@@ -655,18 +679,55 @@ function fieldSVG({id = '', pts = [], cur = null, sectors = null}){
             <text x="${x}" y="${y+6}" text-anchor="middle" font-size="17" fill="var(--ink)">${sectors[k]}</text>`;
     }
   }
-  for (const p of pts) s += `<circle cx="${p.x}" cy="${p.y}" r="${p.r || 4}" fill="${p.c}" stroke="var(--surface)" stroke-width="1" opacity="${p.o || 1}"/>`;
+  for (const p of pts) if (p.bt) {
+    const o = (p.o || 1) * .75;
+    if (p.bt === 'F') { const cy = Math.max(4, (232 + p.y) / 2 - .45 * Math.hypot(p.x - 150, 232 - p.y)); s += `<path d="M150 232 Q ${(150 + p.x) / 2} ${cy} ${p.x} ${p.y}" fill="none" stroke="${p.c}" stroke-width="1.8" opacity="${o}"/>`; }
+    else s += `<line x1="150" y1="232" x2="${p.x}" y2="${p.y}" stroke="${p.c}" stroke-width="${p.bt === 'L' ? 3.4 : 1.6}" ${p.bt === 'G' ? 'stroke-dasharray="5 3"' : ''} opacity="${o}"/>`;
+  }
+  for (const p of pts) {
+    const r = p.r || 4, a = `fill="${p.c}" stroke="var(--surface)" stroke-width="1" opacity="${p.o || 1}"`;
+    if (p.k === 'o') s += `<polygon points="${p.x},${p.y - r * 1.35} ${p.x - r * 1.25},${p.y + r * .95} ${p.x + r * 1.25},${p.y + r * .95}" ${a}/>`;
+    else if (p.k === 'c') s += `<rect x="${p.x - r * .9}" y="${p.y - r * .9}" width="${r * 1.8}" height="${r * 1.8}" ${a}/>`;
+    else s += `<circle cx="${p.x}" cy="${p.y}" r="${r}" ${a}/>`;
+  }
   if (cur) s += `<circle cx="${cur.x}" cy="${cur.y}" r="9" fill="none" stroke="var(--ink)" stroke-width="2"/><circle cx="${cur.x}" cy="${cur.y}" r="3.5" fill="var(--ink)"/>`;
   return s + '</svg>';
+}
+const DIRK = {p:'引っ張り', c:'センター', o:'流し'};
+function sideOf(e, pl){ const v = e.h || (pl && pl.bats); return v === 'R' || v === 'L' ? v : null; }
+// 打球方向と打席から 引っ張り(p)・センター返し(c)・流し(o) を判定。両打ちで打席が未記録なら null
+function dirKind(e, pl){
+  if (e.x == null) return null;
+  const sec = sector(e.x, e.y); if (sec === 'C') return 'c';
+  const sd = sideOf(e, pl); if (!sd) return null;
+  return sec === (sd === 'R' ? 'L' : 'R') ? 'p' : 'o';
+}
+const ptOf = (e, pl, ex) => ({x:e.x, y:e.y, c:ptColor(e.r), bt:e.bt || (BAT[e.r] && BAT[e.r].bt) || null, k:dirKind(e, pl) || 'u', ...ex});
+function dirCount(items){
+  const c = {p:0, c:0, o:0, u:0};
+  for (const {e, pl} of items) c[dirKind(e, pl) || 'u']++;
+  return c;
+}
+function dirText(c){
+  const n = c.p + c.c + c.o; if (!n) return '';
+  return `引っ張り ${pct(c.p / n)}（${c.p}）・センター ${pct(c.c / n)}（${c.c}）・流し ${pct(c.o / n)}（${c.o}）${c.u ? `・未判定 ${c.u}` : ''}`;
+}
+function batLegend(){
+  const ln = (d, w) => `<svg width="26" height="10" viewBox="0 0 26 10" aria-hidden="true"><line x1="1" y1="5" x2="25" y2="5" stroke="var(--ink)" stroke-width="${w}" ${d ? 'stroke-dasharray="5 3"' : ''}/></svg>`;
+  return `<div class="legend"><span><i style="background:var(--stitch)"></i>安打</span><span><i style="background:var(--ink)"></i>アウト</span><span><i style="background:var(--amber)"></i>失策・野選</span></div>
+    <div class="legend"><span>${ln(1, 1.6)}ゴロ</span><span><svg width="26" height="12" viewBox="0 0 26 12" aria-hidden="true"><path d="M1 11 Q 13 -3 25 11" fill="none" stroke="var(--ink)" stroke-width="1.8"/></svg>フライ</span><span>${ln(0, 3.4)}ライナー</span></div>
+    <div class="legend"><span><span class="mk">●</span>引っ張り</span><span><span class="mk">■</span>センター</span><span><span class="mk">▲</span>流し</span><span>（先端の形。両打ちで打席が未入力なら●）</span></div>`;
 }
 const ptColor = r => BAT[r] && BAT[r].hit ? 'var(--stitch)' : (r === 'E' || r === 'FC') ? 'var(--amber)' : 'var(--ink)';
 function batInput(p, s){
   const bats = s.bat || [];
-  const pts = bats.filter(e => e.x != null).map(e => ({x:e.x, y:e.y, c:ptColor(e.r), o:.45}));
+  const pts = bats.filter(e => e.x != null).map(e => ptOf(e, p, {o:.55}));
   const b = (r, cls) => `<button class="btn ${cls}" data-act="bat" data-v="${r}">${BAT[r].l}</button>`;
   return `<div class="card">
-    <h2>${bats.length + 1}打席目 <small>${ui.bat.pt ? '方向：' + SEC[sector(ui.bat.pt.x, ui.bat.pt.y)] : '打球が飛んだ位置をタップ'}</small></h2>
+    <h2>${bats.length + 1}打席目 <small>${ui.bat.pt ? '方向：' + SEC[sector(ui.bat.pt.x, ui.bat.pt.y)] + (dirKind({x:ui.bat.pt.x, y:ui.bat.pt.y, h:p.bats === 'S' ? ui.bat.side : null}, p) ? '（' + DIRK[dirKind({x:ui.bat.pt.x, y:ui.bat.pt.y, h:p.bats === 'S' ? ui.bat.side : null}, p)] + '）' : '') : '打球が飛んだ位置をタップ'}</small></h2>
     ${fieldSVG({id:'field-in', pts, cur:ui.bat.pt})}
+    ${batLegend()}
+    ${p.bats === 'S' ? `<div class="row between"><span class="lbl">両打ちの打席</span>${seg('side', ui.bat.side || '', [['R','右打席'],['L','左打席']], 'sm').replace('class="seg sm"', 'class="seg sm" style="flex:1;max-width:240px"')}</div>` : ''}
     <div class="row between"><span class="lbl">打球の種類</span>${ui.bat.pt ? `<button class="hint" data-act="clearPt" style="text-decoration:underline">位置を消す</button>` : ''}</div>
     ${seg('bt', ui.bat.bt, [['G','ゴロ'],['F','フライ'],['L','ライナー']])}
     <div class="row between"><span class="lbl">打点</span>${seg('rbi', String(ui.bat.rbi), [['0','0'],['1','1'],['2','2'],['3','3'],['4','4']], 'sm').replace('class="seg sm"', 'class="seg sm" style="flex:1;max-width:240px"')}</div>
@@ -790,7 +851,8 @@ function batTab(p){
   const bt = {G:0, F:0, L:0}; evts.forEach(e => { if (e.bt && bt[e.bt] != null) bt[e.bt]++; });
   const btN = bt.G + bt.F + bt.L;
   const pull = p.bats === 'R' ? 'L' : p.bats === 'L' ? 'R' : null;
-  const pts = balls.map(e => ({x:e.x, y:e.y, c:ptColor(e.r), r:4.5, o:.9}));
+  const pts = balls.map(e => ptOf(e, p, {r:4.5, o:.9}));
+  const dc = dirCount(balls.map(e => ({e, pl:p})));
   const stackCol = {G:'var(--dirt)', F:'var(--grass)', L:'var(--stitch)'};
   return `<div class="card"><div class="tiles">
       <div class="tile big"><div class="v">${f3(c.AVG)}</div><div class="k">打率</div></div>
@@ -801,8 +863,9 @@ function batTab(p){
       <span>打点<b>${c.RBI}</b></span><span>四死球<b>${c.BB + c.HBP}</b></span><span>三振<b>${c.K}</b></span><span>長打率<b>${f3(c.SLG)}</b></span></div></div>
   <div class="card"><h2>打球方向 <small>${balls.length}球</small></h2>
     ${fieldSVG({pts, sectors, cur:hl && hl.x != null ? {x:hl.x, y:hl.y} : null})}
-    <div class="legend"><span><i style="background:var(--stitch)"></i>安打</span><span><i style="background:var(--ink)"></i>アウト</span><span><i style="background:var(--amber)"></i>失策・野選</span></div>
-    ${pull && balls.length ? `<p class="hint">引っ張り ${pct(sc[pull] / balls.length)}・センター ${pct(sc.C / balls.length)}・流し ${pct(sc[pull === 'L' ? 'R' : 'L'] / balls.length)}（${p.bats === 'R' ? '右' : '左'}打者）</p>` : ''}
+    ${batLegend()}
+    ${dirText(dc) ? `<p class="hint">${dirText(dc)}${p.bats === 'S' ? '（両打ち：記録時に選んだ打席で判定）' : ''}</p>` : ''}
+    ${false ? `<p class="hint">引っ張り ${pct(sc[pull] / balls.length)}・センター ${pct(sc.C / balls.length)}・流し ${pct(sc[pull === 'L' ? 'R' : 'L'] / balls.length)}（${p.bats === 'R' ? '右' : '左'}打者）</p>` : ''}
     <div style="overflow-x:auto"><table><thead><tr><th>方向</th><th>打球</th><th>安打</th><th>打球の安打率</th></tr></thead><tbody>
       ${['L','C','R'].map(k => `<tr><td>${{L:'レフト方向',C:'センター方向',R:'ライト方向'}[k]}</td><td class="n">${sc[k]}</td><td class="n">${sh[k]}</td><td class="n">${f3(div(sh[k], sab[k]))}</td></tr>`).join('')}
     </tbody></table></div></div>
@@ -1146,12 +1209,21 @@ function recGame(){
   return g;
 }
 // 試合記録の並び: 打順1〜9（DH のときは投手 P を末尾に）。選手が未定・不明・退団のときは pid ''
+// 打順の枠 no（'1'〜'9'、DH のとき投手 'P'）の現在の選手と守備位置。交代があれば最後の交代を採用
+function slotBase(g, no){
+  if (no === 'P') return {pid:g.pitcher || '', pos:'1', kind:'スタメン'};
+  const x = (g.lineup || [])[+no - 1] || {};
+  return {pid:x.pid || '', pos:String(x.pos || ''), kind:'スタメン'};
+}
+const slotSubs = (g, no) => (g.subs || []).filter(x => x.no === no);
+const slotChain = (g, no) => [slotBase(g, no), ...slotSubs(g, no)];
+const slotNow = (g, no) => { const L = slotChain(g, no); return L[L.length - 1]; };
+// 試合記録の並び: 打順1〜9（DH のときは投手 P を末尾に）。選手が未定・不明・退団のときは pid ''。交代済みなら現在の選手
 function recOrder(g){
   const ok = id => id && S.players[id] && isActive(S.players[id]) ? id : '';
-  const L = g.lineup || [];
-  const out = Array.from({length:9}, (_, i) => ({no:String(i + 1), pid:ok(L[i] && L[i].pid)}));
-  if (g.dh) out.push({no:'P', pid:ok(g.pitcher)});
-  return out;
+  const out = Array.from({length:9}, (_, i) => String(i + 1));
+  if (g.dh) out.push('P');
+  return out.map(no => { const c = slotNow(g, no); return {no, pid:ok(c.pid), pos:c.pos, subbed:slotSubs(g, no).length > 0}; });
 }
 function recIdx(o){ return o[ui.recNo] && o[ui.recNo].pid === ui.pid ? ui.recNo : o.findIndex(x => x.pid && x.pid === ui.pid); }
 // 打順 i の次に打つ人（投手 P は打順に入らないので飛ばす・未定の枠も飛ばす）。いなければ -1
@@ -1184,32 +1256,66 @@ function gameRecTab(g, p){
   if (cur && ui.sid !== cur.id) ui.sid = cur.id;
   const nBat = pid => { const s = gameSession(g, pid, false); return s ? (s.bat || []).length : 0; };
   const chips = o.map((x, i) => x.pid
-    ? `<button class="chip" data-act="recPick" data-v="${i}" aria-pressed="${i === ci}"><span class="no">${x.no}</span>${esc(S.players[x.pid].name)}<span class="cnt">${nBat(x.pid)}打席</span></button>`
+    ? `<button class="chip" data-act="recPick" data-v="${i}" aria-pressed="${i === ci}"><span class="no">${x.no}</span>${esc(S.players[x.pid].name)}<span class="cnt">${x.subbed ? '交代・' : ''}${nBat(x.pid)}打席</span></button>`
     : `<button class="chip" disabled aria-pressed="false"><span class="no">${x.no}</span>未定</button>`).join('');
   let h = `<div class="card"><div class="row between">
       <div><div class="lbl">試合を記録中</div><div style="font-weight:700;font-size:17px"><span class="num" style="font-size:22px">${g.date ? md(g.date) : ''}</span> ${esc(gameLabel(g))}</div></div>
       <div class="row"><button class="btn ghost" data-act="gsum" data-v="${g.id}">試合の概況</button><button class="btn ghost" data-act="recGameEnd">試合記録を終える</button></div></div></div>
     <div class="card" style="gap:8px"><span class="lbl">打順（タップで選手を切り替え）</span><div class="players strip">${chips}</div></div>`;
   if (cur) {
-    h += `<div class="card" style="gap:8px"><div class="row between"><b>${ci >= 0 ? esc(o[ci].no) + ' ' : ''}${esc(p.name)}</b><span class="hint">${(cur.bat || []).length}打席</span></div>
+    h += `<div class="card" style="gap:8px"><div class="row between"><b>${ci >= 0 ? esc(o[ci].no) + ' ' : ''}${esc(p.name)}${ci >= 0 && o[ci].pos ? `<span class="hint"> ${esc(posName(o[ci].pos))}</span>` : ''}</b>${ci >= 0 ? `<span class="row"><button class="btn sm ghost" data-act="subOpen" data-v="${o[ci].no}">交代</button><span class="hint">${(cur.bat || []).length}打席</span></span>` : `<span class="hint">${(cur.bat || []).length}打席</span>`}</div>
       ${seg('rec', ui.rec, [['bat','打撃'],['field','守備'],['pitch','投球']])}</div>`;
     h += ui.rec === 'bat' ? batInput(p, cur) : ui.rec === 'field' ? fieldInput(p, cur) : pitchInput(cur);
   } else h += `<div class="card"><p class="hint">打順の選手をタップすると、その選手の記録を始められます。</p></div>`;
-  h += `<div class="card"><h2>この試合の打席一覧 <small>打順ごと</small></h2><div>
+  h += `<div class="card"><h2>この試合の打席一覧 <small>打順ごと・交代も表示</small></h2><div>
     ${o.map((x, i) => {
-      if (!x.pid) return `<div class="rv"><span class="num" style="font-size:17px;font-weight:700;min-width:28px">${x.no}</span><span class="hint">未定</span></div>`;
-      const s = gameSession(g, x.pid, false), bats = s ? (s.bat || []) : [];
+      const shown = new Set();
+      const lines = slotChain(g, x.no).map((c, k) => {
+        if (!c.pid || !S.players[c.pid]) return '';
+        const sx = gameSession(g, c.pid, false), bats = sx && !shown.has(c.pid) ? (sx.bat || []) : []; shown.add(c.pid);
+        return `<span style="display:block">${k ? `<span class="tag">${esc(c.kind || '交代')}</span> ` : ''}<b>${esc(S.players[c.pid].name)}</b>${c.pos ? `<span class="hint"> ${esc(posName(c.pos))}</span>` : ''} <span class="m" style="display:inline;white-space:normal">${bats.length ? esc(bats.map(paText).join(' / ')) : '–'}</span></span>`;
+      }).join('');
       return `<div class="rv" aria-current="${i === ci}"><button class="t" data-act="recPick" data-v="${i}"><span class="num" style="font-size:17px;font-weight:700;min-width:28px">${x.no}</span>
-        <span style="min-width:0"><b>${esc(S.players[x.pid].name)}</b> <span class="m" style="display:inline;white-space:normal">${bats.length ? esc(bats.map(paText).join(' / ')) : '–'}</span></span></button></div>`;
+        <span style="min-width:0">${lines || '<span class="hint">未定</span>'}</span></button><button class="btn sm ghost" data-act="subOpen" data-v="${x.no}">交代</button></div>`;
     }).join('')}</div></div>`;
   return h;
 }
 
 /* ---------- 試合の概況（選手を選ばず、その試合の全記録を集計） ---------- */
+const posName = k => k === 'DH' ? 'DH' : POS[k] || '';
+const SUBKIND = ['代打', '代走', '守備固め', '交代'];
+function roleText(g, pid){
+  const L = g.lineup || [];
+  let i = L.findIndex(x => x.pid === pid);
+  if (i >= 0) return `${i + 1}番${(g.subs || []).some(x => x.no === String(i + 1)) ? '（スタメン）' : ''}`;
+  if (g.dh && g.pitcher === pid) return 'P';
+  const sb = (g.subs || []).find(x => x.pid === pid);
+  return sb ? `${sb.no === 'P' ? 'P' : sb.no + '番'}（${sb.kind}）` : '';
+}
+function subSheet(){
+  const g = gameOf(ui.sheet.gid); if (!g) return '';
+  const no = ui.sheet.no, cur = slotNow(g, no), o = recOrder(g);
+  const onField = new Set(o.filter(x => x.no !== no && x.pid).map(x => x.pid));
+  const ps = activePlayers().filter(x => !onField.has(x.id)).sort(byNo);
+  const curP = cur.pid && S.players[cur.pid] ? cur.pid : '';
+  if (curP && !ps.some(x => x.id === curP)) ps.unshift({id:curP, ...S.players[curP]});
+  const keys = [...Object.keys(POS_GRID).sort(), ...(g.dh || cur.pos === 'DH' ? ['DH'] : [])];
+  const done = slotSubs(g, no);
+  return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
+    <h3>${no === 'P' ? '投手' : no + '番'}の交代・守備変更</h3>
+    <p class="hint" style="margin-top:-6px">いま：${curP ? esc(S.players[curP].name) : '未定'}${cur.pos ? '（' + esc(posName(cur.pos)) + '）' : ''}。打順の枠はそのままで、選手と守備位置を入れ替えます。</p>
+    <div class="form"><label class="lbl" for="sb-pid">入る選手（控えも選べます）</label><select id="sb-pid" data-nokeep>${ps.map(x => `<option value="${x.id}" ${x.id === curP ? 'selected' : ''}>${esc(pLabel(x))}${x.id === curP ? '（いま）' : onField.has(x.id) ? '' : ''}</option>`).join('')}</select></div>
+    <div class="form"><label class="lbl" for="sb-pos">守備位置</label><select id="sb-pos" data-nokeep>${keys.map(k => `<option value="${k}" ${k === cur.pos ? 'selected' : ''}>${k === 'DH' ? 'DH 指名打者' : k + ' ' + POS[k]}</option>`).join('')}</select></div>
+    <div class="form"><label class="lbl" for="sb-kind">種類（選手を変えるとき）</label><select id="sb-kind" data-nokeep>${SUBKIND.map(k => `<option>${k}</option>`).join('')}</select></div>
+    ${done.length ? `<p class="hint">この枠の経過：${[slotBase(g, no), ...done].map(c => (c.pid && S.players[c.pid] ? esc(S.players[c.pid].name) : '未定') + (c.pos ? '(' + esc(posShort(c.pos)) + ')' : '')).join(' → ')}</p>` : ''}
+    <button class="btn primary" data-act="subSave">交代を記録</button>
+    ${done.length ? `<button class="btn ghost" data-act="subUndo">直前の交代を取り消す</button>` : ''}
+    <button class="btn ghost" data-act="closeSheet">閉じる</button></div></div>`;
+}
 function gameSessions(gid){
   const g = gameOf(gid); if (!g) return [];
   const order = (g.lineup || []).map(x => x.pid).concat(g.dh ? [g.pitcher] : []);
-  const rank = pid => { const i = order.indexOf(pid); return i < 0 ? 99 : i; };
+  const rank = pid => { let i = order.indexOf(pid); if (i < 0) { const sb = (g.subs || []).find(x => x.pid === pid); i = sb ? (sb.no === 'P' ? 9 : +sb.no - 1) + .5 : 99; } return i; };
   return Object.entries(S.sessions).filter(([, s]) => s.gameId === gid).map(([id, s]) => ({id, ...s}))
     .sort((a, b) => rank(a.playerId) - rank(b.playerId) || (a.createdAt || 0) - (b.createdAt || 0));
 }
@@ -1225,12 +1331,14 @@ function gameSummary(gid){
   const bats = ss.flatMap(s => s.bat || []);
   const b = batStats(bats), f = fieldSum(ss).all;
   const pit = pitchSum(ss.map(s => ({...s, pitch:(s.pitch || []).map(x => ({...x, sid:s.id}))})));
+  const items = ss.flatMap(s => (s.bat || []).map(e => ({e, pl:S.players[s.playerId]})));
   const dir = bats.filter(e => e.x != null && BAT[e.r]);
+  const dk = dirCount(items.filter(({e}) => e.x != null && BAT[e.r]));
   const sec = {L:{n:0, h:0}, C:{n:0, h:0}, R:{n:0, h:0}};
   dir.forEach(e => { const c = sec[sector(e.x, e.y)]; c.n++; if (BAT[e.r].hit) c.h++; });
   const bt = {G:0, F:0, L:0};
   bats.forEach(e => { const k = BAT[e.r] && (e.bt || BAT[e.r].bt); if (k) bt[k]++; });
-  return {ss, b, f, fpct:div(f.ok, f.ok + f.err), pit, dir, sec, bt, none:bats.length - dir.length};
+  return {ss, b, f, fpct:div(f.ok, f.ok + f.err), pit, dir, dk, sec, bt, none:bats.length - dir.length};
 }
 function gameSumSheet(){
   const gid = ui.sheet.gid, g = gameOf(gid);
@@ -1238,7 +1346,8 @@ function gameSumSheet(){
   const A = gameSummary(gid), nm = pid => S.players[pid] ? S.players[pid].name : '（不明）';
   if (ui.sheet.who !== 'all' && !A.ss.some(s => s.playerId === ui.sheet.who)) ui.sheet.who = 'all';
   const who = ui.sheet.who;
-  const pts = A.ss.filter(s => who === 'all' || s.playerId === who).flatMap(s => (s.bat || []).filter(e => e.x != null && BAT[e.r]).map(e => ({x:e.x, y:e.y, c:ptColor(e.r), r:5, o:.9})));
+  const pts = A.ss.filter(s => who === 'all' || s.playerId === who).flatMap(s => (s.bat || []).filter(e => e.x != null && BAT[e.r]).map(e => ptOf(e, S.players[s.playerId], {r:5, o:.9})));
+  const dk = dirCount(A.ss.filter(s => who === 'all' || s.playerId === who).flatMap(s => (s.bat || []).filter(e => e.x != null && BAT[e.r]).map(e => ({e, pl:S.players[s.playerId]}))));
   const secs = {}; for (const k in A.sec) secs[k] = A.sec[k].n ? `${A.sec[k].h}/${A.sec[k].n}` : '–';
   const tiles = `<div class="tiles">
       <div class="tile big"><div class="v">${f3(A.b.AVG)}</div><div class="k">チーム打率</div><div class="k">${A.b.AB}打数${A.b.H}安打</div></div>
@@ -1246,19 +1355,23 @@ function gameSumSheet(){
       <div class="tile"><div class="v">${f3(A.pit.AVG)}</div><div class="k">被打率</div><div class="k">${A.pit.AB}打数${A.pit.H}被安打</div></div>
       <div class="tile"><div class="v">${f3(A.b.OBP)}</div><div class="k">出塁率</div><div class="k">${A.b.H + A.b.BB + A.b.HBP}出塁</div></div></div>`;
   const rows = A.ss.map(s => { const b = batStats(s.bat || []), f = fieldSum([s]).all;
-    return `<tr><td class="l" style="font-weight:700">${esc(nm(s.playerId))}</td><td class="n">${b.AB}</td><td class="n">${b.H}</td><td class="n">${b.RBI}</td><td class="n">${b.BB + b.HBP}</td><td class="n">${b.K}</td><td class="n">${f.ok + f.err}</td><td class="n">${f.err}</td></tr>`; }).join('');
+    return `<tr><td class="l" style="font-weight:700">${esc(nm(s.playerId))}<span class="hint" style="display:block;font-weight:400;font-size:11px">${esc(roleText(g, s.playerId))}</span></td><td class="n">${b.AB}</td><td class="n">${b.H}</td><td class="n">${b.RBI}</td><td class="n">${b.BB + b.HBP}</td><td class="n">${b.K}</td><td class="n">${f.ok + f.err}</td><td class="n">${f.err}</td></tr>`; }).join('');
   const t = A.b, tf = A.f;
   const total = `<tr class="tot"><td class="l">合計</td><td class="n">${t.AB}</td><td class="n">${t.H}</td><td class="n">${t.RBI}</td><td class="n">${t.BB + t.HBP}</td><td class="n">${t.K}</td><td class="n">${tf.ok + tf.err}</td><td class="n">${tf.err}</td></tr>`;
-  const chip = (v, l) => `<button class="chip" data-act="gsumWho" data-v="${v}" aria-pressed="${who === v}">${l}</button>`;
+  const whoName = who === 'all' ? '全員' : nm(who);
+  const picker = `<button class="pcur" data-act="gsumPick" aria-expanded="${!!ui.sheet.pick}"><span class="nm">${esc(whoName)}</span><span class="car">${ui.sheet.pick ? '▲' : '▼'}</span></button>${ui.sheet.pick ? `<div class="ppanel in"><div class="prow"><span class="pl">全体</span><div class="players"><button class="chip sm" data-act="gsumWho" data-v="all" aria-pressed="${who === 'all'}">全員</button></div></div>${gradeRows(A.ss.map(s => ({id:s.playerId, ...(S.players[s.playerId] || {name:'（不明）'})})), who, 'gsumWho')}</div>` : ''}`;
+  const subs = (g.subs || []).length ? `<div class="card" style="gap:6px"><h2>交代の記録 <small>${g.subs.length}件</small></h2>${g.subs.map(x => `<div style="font-size:14px"><b>${x.no === 'P' ? 'P' : x.no + '番'}</b> ${esc(x.from && S.players[x.from] ? S.players[x.from].name : '未定')} → <b>${esc(S.players[x.pid] ? S.players[x.pid].name : '（不明）')}</b> <span class="tag">${esc(x.kind)}</span> <span class="hint">${esc(posName(x.pos))}</span></div>`).join('')}</div>` : '';
   return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
     <h3>試合の概況</h3><p class="hint" style="margin-top:-6px">${g.date ? md(g.date) + ' ' : ''}${esc(gameLabel(g))}（記録のある選手 ${A.ss.length}人）</p>
     ${A.ss.length ? `${tiles}
     <div class="line-stats"><span>打席<b>${A.b.PA}</b></span><span>打点<b>${A.b.RBI}</b></span><span>四死球<b>${A.b.BB + A.b.HBP}</b></span><span>三振<b>${A.b.K}</b></span><span>長打<b>${A.b.D + A.b.T + A.b.HR}</b></span><span>OPS<b>${f3(A.b.OPS)}</b></span></div>
     <div class="card" style="gap:8px"><h2>打球方向 <small>${pts.length}本・図の数字は 安打/打球数</small></h2>
-      <div class="players strip">${chip('all', '全員')}${A.ss.map(s => chip(s.playerId, esc(nm(s.playerId)))).join('')}</div>
+      ${picker}
       ${fieldSVG({pts, sectors:secs})}
-      <div class="legend"><span><i style="background:var(--stitch)"></i>安打</span><span><i style="background:var(--ink)"></i>アウト</span><span><i style="background:var(--amber)"></i>失策・野選</span></div>
+      ${batLegend()}
+      ${dirText(dk) ? `<p class="hint">${dirText(dk)}</p>` : ''}
       <div class="line-stats"><span>ゴロ<b>${A.bt.G}</b></span><span>フライ<b>${A.bt.F}</b></span><span>ライナー<b>${A.bt.L}</b></span>${A.none ? `<span>方向なし<b>${A.none}</b></span>` : ''}</div></div>
+    ${subs}
     <div class="card" style="gap:8px"><h2>投手陣 <small>この試合の投球記録</small></h2>${A.pit.N ? `<div class="line-stats"><span>投球数<b>${A.pit.N}</b></span><span>ストライク率<b>${pct(div(A.pit.str, A.pit.N))}</b></span><span>対戦打者<b>${A.pit.BF}</b></span><span>奪三振<b>${A.pit.K}</b></span><span>四球<b>${A.pit.BB}</b></span><span>死球<b>${A.pit.HBP}</b></span></div>` : '<p class="hint">投球の記録はありません。</p>'}</div>
     <div class="card" style="gap:8px"><h2>選手別 <small>打順どおり</small></h2><div class="tbl"><table style="min-width:0;font-size:12px"><thead><tr><th class="l">選手</th><th>打数</th><th>安打</th><th>打点</th><th>四死球</th><th>三振</th><th>守備機会</th><th>失策</th></tr></thead><tbody>${rows}${total}</tbody></table></div></div>
     <p class="hint">打数は四死球・犠打・犠飛を除く打席。被打率は投球入力で打席が終わった球（安打・凡打・失策・三振）のうち安打の割合。守備率は(機会−失策)÷機会で、機会はゴロ・フライ・送球の成功とエラーの合計です。守備位置を付けていない回数記録も含みます。</p>`
@@ -1379,6 +1492,7 @@ function sheet(){
   if (ui.sheet.kind === 'menu') return menuSheet();
   if (ui.sheet.kind === 'game') return gameSheet();
   if (ui.sheet.kind === 'gsum') return gameSumSheet();
+  if (ui.sheet.kind === 'sub') return subSheet();
   const p = ui.sheet.id ? S.players[ui.sheet.id] || {} : {};
   const opt = (v, cur, l) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`;
   return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
@@ -1401,7 +1515,7 @@ function sheet(){
 /* ---------- 操作 ---------- */
 let toastT;
 function toast(m){ const t = $('#toast'); t.textContent = m; t.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => t.style.opacity = 0, 1800); }
-function selectPlayer(id){ ui.pid = id; ui.sid = null; ui.creating = false; ui.bat.pt = null; ui.pitch.zone = null; ui.pos = null; ui.fpos = 'all'; ui.fses = 'all'; ui.hlBat = null; ui.hlPa = null; savePrefs(); }
+function selectPlayer(id){ ui.pid = id; ui.sid = null; ui.creating = false; ui.bat.pt = null; ui.bat.side = null; ui.pitch.zone = null; ui.pos = null; ui.fpos = 'all'; ui.fses = 'all'; ui.hlBat = null; ui.hlPa = null; savePrefs(); }
 function commitGame(){
   const d = ui.sheet.draft;
   if (!d.date) { toast('日付を入力してください'); return null; }
@@ -1429,16 +1543,40 @@ document.addEventListener('click', e => {
   if (el.dataset.act === 'closeSheet' && e.target.closest('[data-stop]') && e.target !== el) return;
   const v = el.dataset.v;
   const A = {
-    tab(){ ui.tab = v; savePrefs(); window.scrollTo(0, 0); if (v === 'rec') ensureRecSession(); },
+    pickToggle(){ ui.pick = !ui.pick; },
+    editCur(){ const p = curPlayer(); if (!p) return false; ui.pick = false; ui.sheet = {id:p.id}; },
+    tab(){ ui.pick = false; ui.tab = v; savePrefs(); window.scrollTo(0, 0); if (v === 'rec') ensureRecSession(); },
     rec(){ ui.rec = v; savePrefs(); },
     player(){
-      if (ui.pid === v) { ui.sheet = {id:v}; return; }
+      ui.pick = false;
+      if (ui.pid === v) return;
       selectPlayer(v);
       if (ui.gameRec) { const g = recGame(); if (g && recOrder(g).some(x => x.pid === v)) ensureRecSession(); else ui.gameRec = null; }
     },
     recGame(){ return startGameRec(v); },
     gsum(){ if (!S.games[v]) return false; ui.sheet = {kind:'gsum', gid:v, who:'all'}; ui.confirm = null; },
-    gsumWho(){ ui.sheet.who = v; },
+    gsumWho(){ ui.sheet.who = v; ui.sheet.pick = false; },
+    gsumPick(){ ui.sheet.pick = !ui.sheet.pick; },
+    subOpen(){ const g = gameOf(ui.gameRec) || null; const gid = g ? g.id : ui.gameRec; if (!S.games[gid]) return false; ui.sheet = {kind:'sub', gid, no:v}; },
+    subSave(){
+      const gid = ui.sheet.gid, g = gameOf(gid); if (!g) return false;
+      const no = ui.sheet.no, cur = slotNow(g, no), pid = $('#sb-pid').value, pos = $('#sb-pos').value;
+      if (!pid || !S.players[pid]) { toast('入る選手を選んでください'); return false; }
+      if (pid === cur.pid && pos === cur.pos) { toast('変更がありません'); return false; }
+      const sub = {no, pid, pos, kind:pid === cur.pid ? '守備変更' : $('#sb-kind').value || '交代', from:cur.pid || '', t:Date.now()};
+      const old = S.games[gid];
+      put('games', gid, {...old, subs:[...(old.subs || []), sub]});
+      ui.sheet = null; dirty = false; toast(`${no === 'P' ? '投手' : no + '番'}：${S.players[pid].name} を記録しました`);
+      const g2 = gameOf(gid), o = recOrder(g2), i = o.findIndex(x => x.no === no);
+      if (ui.gameRec === gid && i >= 0 && o[i].pid) { ui.rec = 'bat'; recSelect(g2, o, i); }
+    },
+    subUndo(){
+      const gid = ui.sheet.gid, old = S.games[gid]; if (!old) return false;
+      const subs = (old.subs || []).slice(), k = subs.map(x => x.no).lastIndexOf(ui.sheet.no);
+      if (k < 0) return false;
+      subs.splice(k, 1); put('games', gid, {...old, subs}); ui.sheet = null; toast('直前の交代を取り消しました');
+      if (ui.gameRec === gid) ensureRecSession();
+    },
     recGameSheet(){
       const d = ui.sheet.draft;
       if (!d.date) { toast('日付を入力してください'); return false; }
@@ -1448,7 +1586,7 @@ document.addEventListener('click', e => {
     },
     recGameEnd(){ ui.gameRec = null; ui.recNo = null; toast('試合の記録を終えました'); },
     recPick(){ const g = recGame(); if (!g) return false; const o = recOrder(g), i = +v; if (!o[i] || !o[i].pid) return false; recSelect(g, o, i); },
-    addPlayer(){ ui.sheet = {id:null}; },
+    addPlayer(){ ui.pick = false; ui.sheet = {id:null}; },
     closeSheet(){ if (ui.vfile && ui.vfile.state === 'busy') return false; ui.sheet = null; ui.vfile = null; ui.confirm = null; dirty = false; },
     hlBat(){ ui.hlBat = ui.hlBat === +v ? null : +v; },
     hlPa(){ ui.hlPa = +v; },
@@ -1593,13 +1731,14 @@ document.addEventListener('click', e => {
       remove('sessions', v); ui.confirm = null; if (ui.sid === v) ui.sid = null; if (ui.fses === v) ui.fses = 'all'; toast('記録を削除しました');
     },
     clearPt(){ ui.bat.pt = null; },
+    side(){ ui.bat.side = ui.bat.side === v ? null : v; },
     bt(){ ui.bat.bt = v; },
     rbi(){ ui.bat.rbi = +v; },
     bat(){
       const s = sess(); if (!s) return;
       const d = BAT[v], ev = {r:v};
       if (ui.bat.rbi) ev.rbi = ui.bat.rbi;
-      if (!d.nb) { if (ui.bat.pt) { ev.x = ui.bat.pt.x; ev.y = ui.bat.pt.y; } ev.bt = d.bt || ui.bat.bt; }
+      if (!d.nb) { if (ui.bat.pt) { ev.x = ui.bat.pt.x; ev.y = ui.bat.pt.y; } ev.bt = d.bt || ui.bat.bt; const pl = S.players[s.playerId]; if (pl && pl.bats === 'S' && ui.bat.side) ev.h = ui.bat.side; }
       s.bat = (s.bat || []).concat([ev]);
       put('sessions', ui.sid, s);
       ui.bat.pt = null; ui.bat.rbi = 0;
