@@ -11,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "baseball-hawks",
-      "database_id": "REPLACE_WITH_DATABASE_ID"
+      "database_id": "e846dc1b-b88c-4268-8150-be8efeba0ab3"
     }
   ],
   "r2_buckets": [
