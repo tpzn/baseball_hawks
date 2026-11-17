@@ -65,6 +65,12 @@ textarea{resize:vertical;min-height:92px;line-height:1.5}
 .prow .pl{flex:none;width:44px;font-size:12px;color:var(--muted);font-weight:700}
 .prow .players{flex:1;min-width:0}
 .legend svg{vertical-align:middle;margin-right:4px}
+.grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.prev{display:flex;align-items:center;gap:10px;background:var(--sunk);border-radius:12px;padding:8px 12px}
+.prev .pv{font-family:var(--f-body);font-weight:700;font-size:28px;line-height:1.2;min-width:3.6em}
+.prev .pv.none{color:var(--muted);font-size:15px;font-weight:500}
+.prev .btn{flex:1}
+.seg button small{display:block;font-size:10px;font-weight:400;opacity:.7;line-height:1}
 .legend .mk{color:var(--ink);font-size:13px;margin-right:2px}
 .chip .cnt{font-size:11px;color:var(--muted)}
 .chip[aria-pressed="true"] .cnt{color:var(--bg);opacity:.7}
@@ -255,7 +261,7 @@ const BAT = {
   '1B': {l:'単打', hit:1, tb:1}, '2B': {l:'二塁打', hit:1, tb:2}, '3B': {l:'三塁打', hit:1, tb:3}, 'HR': {l:'本塁打', hit:1, tb:4},
   'GO': {l:'ゴロ', bt:'G'}, 'FO': {l:'フライ', bt:'F'}, 'LO': {l:'ライナー', bt:'L'}, 'K': {l:'三振', nb:1},
   'BB': {l:'四球', nb:1, nab:1}, 'HBP': {l:'死球', nb:1, nab:1}, 'E': {l:'失策'}, 'FC': {l:'野選'},
-  'SH': {l:'犠打', nab:1}, 'SF': {l:'犠飛', nab:1, bt:'F'}
+  'SH': {l:'犠打', nab:1}, 'SF': {l:'犠飛', nab:1, bt:'F'}, 'DP': {l:'併殺', bt:'G'}
 };
 const BT = {G:'ゴロ', F:'フライ', L:'ライナー'};
 const KINDS = {g:'ゴロ', f:'フライ', t:'送球'};
@@ -276,7 +282,7 @@ const S = { players:{}, sessions:{}, team:{}, menus:{}, games:{}, loaded:{}, mod
 const ui = Object.assign({
   pid:null, tab:'team', rec:'bat', team:'stats', pstat:'active', sortKey:'no', sortDir:'asc', sid:null, creating:false,
   ftype:'all', fperiod:'all', hm:'share', nth:'all', hhand:'all',
-  bat:{pt:null, bt:'G', rbi:0, side:null}, pitch:{zone:null, hand:'R'}, pos:null, fpos:'all',
+  bat:{pt:null, bt:null, rbi:0, side:null, fpos:null, res:null}, pitch:{zone:null, hand:'R'}, pos:null, fpos:'all',
   fses:'all', hlBat:null, hlPa:null, vfile:null,
   sheet:null, confirm:null, fieldUndo:[], gameRec:null, recNo:null
 }, loadPrefs());
@@ -536,7 +542,7 @@ function vidBtn(s, vk, ref, label){
   return assets ? `<button class="vbtn add" data-act="vAdd" data-k="${vk}" data-r="${ref}" data-l="${esc(label)}">＋映像</button>` : '';
 }
 function videoLabel(s, v){
-  if (v.vk === 'bat') { const e = (s.bat || [])[v.ref]; return `${v.ref + 1}打席目${e ? ' ' + BAT[e.r].l : ''}`; }
+  if (v.vk === 'bat') { const e = (s.bat || [])[v.ref]; return `${v.ref + 1}打席目${e ? ' ' + notation(e) : ''}`; }
   if (v.vk === 'pitch') return `打者${v.ref}への投球`;
   if (v.vk === 'field') { const e = (s.flog || [])[v.ref]; return `守備 ${v.ref + 1}プレー目${e ? ' ' + POS[e.p] + KINDS[e.k] : ''}`; }
   return 'この日の映像';
@@ -556,10 +562,10 @@ function batReview(s){
   if (!bats.length) return '';
   return `<div class="card"><h2>1打席ずつ <small>タップで打球位置を強調</small></h2><div>
     ${bats.map((e, i) => { const d = BAT[e.r];
-      const sub = [e.x != null ? SEC[sector(e.x, e.y)] + '方向' : '', e.bt ? BT[e.bt] : '', e.rbi ? e.rbi + '打点' : ''].filter(Boolean).join('・');
+      const sub = [e.x != null ? SEC[evSector(e)] + '方向' : '', e.bt ? BT[e.bt] : '', e.rbi ? e.rbi + '打点' : ''].filter(Boolean).join('・');
       return `<div class="rv" aria-current="${ui.hlBat === i}"><button class="t" data-act="hlBat" data-v="${i}"><span class="d">${i + 1}打席</span>
-        <span><span class="${d.hit ? 'res-ng' : ''}" style="${d.hit ? 'color:var(--stitch)' : ''};font-weight:700">${d.l}</span>${sub ? `<span class="m" style="display:block">${sub}</span>` : ''}</span></button>
-        ${vidBtn(s, 'bat', i, `${i + 1}打席目 ${d.l}`)}</div>`; }).join('')}
+        <span><span class="${d.hit ? 'res-ng' : ''}" style="${d.hit ? 'color:var(--stitch)' : ''};font-weight:700">${notation(e)}</span>${sub ? `<span class="m" style="display:block">${sub}</span>` : ''}</span></button>
+        ${vidBtn(s, 'bat', i, `${i + 1}打席目 ${notation(e)}`)}</div>`; }).join('')}
   </div></div>`;
 }
 function fieldReview(s){
@@ -681,24 +687,50 @@ function fieldSVG({id = '', pts = [], cur = null, sectors = null}){
   }
   for (const p of pts) if (p.bt) {
     const o = (p.o || 1) * .75;
-    if (p.bt === 'F') { const cy = Math.max(4, (232 + p.y) / 2 - .45 * Math.hypot(p.x - 150, 232 - p.y)); s += `<path d="M150 232 Q ${(150 + p.x) / 2} ${cy} ${p.x} ${p.y}" fill="none" stroke="${p.c}" stroke-width="1.8" opacity="${o}"/>`; }
+    if (p.bt === 'F') {
+      const dx = p.x - 150, dy = p.y - 232, D = Math.hypot(dx, dy) || 1, sg = dx >= 0 ? 1 : -1, off = .55 * D;
+      const cx = (150 + p.x) / 2 + sg * (-dy / D) * off, cy = (232 + p.y) / 2 + sg * (dx / D) * off;
+      s += `<path d="M150 232 Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${p.x} ${p.y}" fill="none" stroke="${p.c}" stroke-width="2.2" opacity="${o}"/>`;
+    }
     else s += `<line x1="150" y1="232" x2="${p.x}" y2="${p.y}" stroke="${p.c}" stroke-width="${p.bt === 'L' ? 3.4 : 1.6}" ${p.bt === 'G' ? 'stroke-dasharray="5 3"' : ''} opacity="${o}"/>`;
   }
   for (const p of pts) {
     const r = p.r || 4, a = `fill="${p.c}" stroke="var(--surface)" stroke-width="1" opacity="${p.o || 1}"`;
     if (p.k === 'o') s += `<polygon points="${p.x},${p.y - r * 1.35} ${p.x - r * 1.25},${p.y + r * .95} ${p.x + r * 1.25},${p.y + r * .95}" ${a}/>`;
     else if (p.k === 'c') s += `<rect x="${p.x - r * .9}" y="${p.y - r * .9}" width="${r * 1.8}" height="${r * 1.8}" ${a}/>`;
+    else if (p.k === 'u') s += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="var(--surface)" stroke="${p.c}" stroke-width="2.2" opacity="${p.o || 1}"/>`;
     else s += `<circle cx="${p.x}" cy="${p.y}" r="${r}" ${a}/>`;
   }
   if (cur) s += `<circle cx="${cur.x}" cy="${cur.y}" r="9" fill="none" stroke="var(--ink)" stroke-width="2"/><circle cx="${cur.x}" cy="${cur.y}" r="3.5" fill="var(--ink)"/>`;
   return s + '</svg>';
 }
 const DIRK = {p:'引っ張り', c:'センター', o:'流し'};
+// スコアブック式の表記（守備位置＋結果）。結果コード→略称、守備位置→打球方向
+const RES = {GO:'ゴ', FO:'飛', LO:'直', '1B':'安', '2B':'二', '3B':'三', HR:'本', E:'失', FC:'野選', SH:'犠打', SF:'犠飛', DP:'併殺'};
+const POSDIR = {'1':'C', '2':'C', '8':'C', '7':'L', '5':'L', '6':'L', '9':'R', '3':'R', '4':'R'};
+const DEFBT = {'1B':'L', '2B':'L', '3B':'L', HR:'L', E:'L', FC:'G', SH:'G'};
+function evPos(e){
+  if (e.f) return e.f;
+  if (e.x == null) return null;
+  let best = null, bd = 1e9;
+  for (const [k, [px, py]] of Object.entries(POS_XY)) { const dd = (px - e.x) ** 2 + (py - e.y) ** 2; if (dd < bd) { bd = dd; best = k; } }
+  return best;
+}
+function notation(e){
+  const d = BAT[e.r]; if (!d) return '';
+  if (e.r === 'K') return e.ks === 'l' ? '見逃し三振' : e.ks === 's' ? '空振り三振' : '三振';
+  if (!RES[e.r]) return d.l;
+  const k = evPos(e);
+  return k ? POS_SHORT[k] + RES[e.r] : d.l;
+}
+function evSector(e){
+  if (e.f && !e.m && POSDIR[e.f]) return POSDIR[e.f];
+  return e.x != null ? sector(e.x, e.y) : null;
+}
 function sideOf(e, pl){ const v = e.h || (pl && pl.bats); return v === 'R' || v === 'L' ? v : null; }
 // 打球方向と打席から 引っ張り(p)・センター返し(c)・流し(o) を判定。両打ちで打席が未記録なら null
 function dirKind(e, pl){
-  if (e.x == null) return null;
-  const sec = sector(e.x, e.y); if (sec === 'C') return 'c';
+  const sec = evSector(e); if (!sec) return null; if (sec === 'C') return 'c';
   const sd = sideOf(e, pl); if (!sd) return null;
   return sec === (sd === 'R' ? 'L' : 'R') ? 'p' : 'o';
 }
@@ -716,29 +748,50 @@ function batLegend(){
   const ln = (d, w) => `<svg width="26" height="10" viewBox="0 0 26 10" aria-hidden="true"><line x1="1" y1="5" x2="25" y2="5" stroke="var(--ink)" stroke-width="${w}" ${d ? 'stroke-dasharray="5 3"' : ''}/></svg>`;
   return `<div class="legend"><span><i style="background:var(--stitch)"></i>安打</span><span><i style="background:var(--ink)"></i>アウト</span><span><i style="background:var(--amber)"></i>失策・野選</span></div>
     <div class="legend"><span>${ln(1, 1.6)}ゴロ</span><span><svg width="26" height="12" viewBox="0 0 26 12" aria-hidden="true"><path d="M1 11 Q 13 -3 25 11" fill="none" stroke="var(--ink)" stroke-width="1.8"/></svg>フライ</span><span>${ln(0, 3.4)}ライナー</span></div>
-    <div class="legend"><span><span class="mk">●</span>引っ張り</span><span><span class="mk">■</span>センター</span><span><span class="mk">▲</span>流し</span><span>（先端の形。両打ちで打席が未入力なら●）</span></div>`;
+    <div class="legend"><span><span class="mk">●</span>引っ張り</span><span><span class="mk">■</span>センター</span><span><span class="mk">▲</span>流し</span><span><span class="mk">○</span>判定できない</span></div>`;
 }
 const ptColor = r => BAT[r] && BAT[r].hit ? 'var(--stitch)' : (r === 'E' || r === 'FC') ? 'var(--amber)' : 'var(--ink)';
+function pendingPt(p){
+  const res = ui.bat.res, d = res && BAT[res], fp = ui.bat.fpos;
+  let x, y;
+  if (ui.bat.pt) { x = ui.bat.pt.x; y = ui.bat.pt.y; }
+  else if (fp && POS_XY[fp]) { [x, y] = POS_XY[fp]; }
+  else return null;
+  const h = p.bats === 'S' ? ui.bat.side : null;
+  const e = {x, y, h, r:res || 'GO', f:ui.bat.pt ? undefined : fp, m:ui.bat.pt ? 1 : 0};
+  return {x, y, c:res ? ptColor(res) : 'var(--ink)', bt:(d && d.bt) || ui.bat.bt || DEFBT[res] || 'L', k:dirKind(e, p) || 'u', r:6, o:1};
+}
 function batInput(p, s){
   const bats = s.bat || [];
   const pts = bats.filter(e => e.x != null).map(e => ptOf(e, p, {o:.55}));
-  const b = (r, cls) => `<button class="btn ${cls}" data-act="bat" data-v="${r}">${BAT[r].l}</button>`;
+  const pend = pendingPt(p); if (pend) pts.push(pend);
+  const res = ui.bat.res, fp = ui.bat.fpos;
+  const fpTxt = fp && fp !== '0' ? POS_SHORT[fp] : '';
+  const ready = res && (fp || ui.bat.pt);
+  const prevTxt = res ? (fpTxt || (ui.bat.pt ? '図' : '')) + RES[res] : fpTxt;
+  const nc = (v, l, cls) => `<button class="btn ${cls}" data-act="batNC" data-v="${v}">${l}</button>`;
+  const rb = rows => rows.map(r => seg('bres', res || '', r.map(k => [k, RES[k] === '二' ? '二<small>二塁打</small>' : RES[k] === '三' ? '三<small>三塁打</small>' : RES[k] === '安' ? '安<small>安打</small>' : RES[k] === '本' ? '本<small>本塁打</small>' : RES[k]]), 'tall')).join('');
   return `<div class="card">
-    <h2>${bats.length + 1}打席目 <small>${ui.bat.pt ? '方向：' + SEC[sector(ui.bat.pt.x, ui.bat.pt.y)] + (dirKind({x:ui.bat.pt.x, y:ui.bat.pt.y, h:p.bats === 'S' ? ui.bat.side : null}, p) ? '（' + DIRK[dirKind({x:ui.bat.pt.x, y:ui.bat.pt.y, h:p.bats === 'S' ? ui.bat.side : null}, p)] + '）' : '') : '打球が飛んだ位置をタップ'}</small></h2>
+    <h2>${bats.length + 1}打席目 <small>${ui.bat.pt ? '位置を指定済み（図をタップで変更）' : '守備位置と結果を選ぶ'}</small></h2>
     ${fieldSVG({id:'field-in', pts, cur:ui.bat.pt})}
     ${batLegend()}
     ${p.bats === 'S' ? `<div class="row between"><span class="lbl">両打ちの打席</span>${seg('side', ui.bat.side || '', [['R','右打席'],['L','左打席']], 'sm').replace('class="seg sm"', 'class="seg sm" style="flex:1;max-width:240px"')}</div>` : ''}
-    <div class="row between"><span class="lbl">打球の種類</span>${ui.bat.pt ? `<button class="hint" data-act="clearPt" style="text-decoration:underline">位置を消す</button>` : ''}</div>
-    ${seg('bt', ui.bat.bt, [['G','ゴロ'],['F','フライ'],['L','ライナー']])}
+    <div class="row between"><span class="lbl">打球の種類（安打・失策などで使う。未選択はライナー）</span>${ui.bat.pt ? `<button class="hint" data-act="clearPt" style="text-decoration:underline">位置を消す</button>` : ''}</div>
+    ${seg('bt', ui.bat.bt || '', [['G','ゴロ'],['F','フライ'],['L','ライナー']])}
+    <div class="lbl">守備位置（打球が飛んだ先）</div>
+    ${seg('bfp', fp || '', [['1','投'],['2','捕'],['3','一'],['4','二'],['5','三']], 'tall')}
+    ${seg('bfp', fp || '', [['6','遊'],['7','左'],['8','中'],['9','右'],['0','なし']], 'tall')}
+    <div class="lbl">結果（ゴ=ゴロ 飛=フライ 直=ライナー）</div>
+    ${rb([['GO','FO','LO','1B'], ['2B','3B','HR','E'], ['FC','SH','SF','DP']])}
+    <div class="prev"><span class="pv ${prevTxt ? '' : 'none'}">${prevTxt ? esc(prevTxt) + (ready ? '' : '…') : '位置と結果を選択'}</span>
+      <button class="btn primary" data-act="batOk" ${ready ? '' : 'disabled'}>${ready ? esc(prevTxt) + ' を記録' : '記録する'}</button></div>
     <div class="row between"><span class="lbl">打点</span>${seg('rbi', String(ui.bat.rbi), [['0','0'],['1','1'],['2','2'],['3','3'],['4','4']], 'sm').replace('class="seg sm"', 'class="seg sm" style="flex:1;max-width:240px"')}</div>
-    <div class="lbl">結果をタップで記録</div>
-    <div class="grid4">${b('1B','hit')}${b('2B','hit')}${b('3B','hit')}${b('HR','hit')}</div>
-    <div class="grid4">${['GO','FO','LO','K'].map(r => b(r, 'out')).join('')}</div>
-    <div class="grid3">${['BB','HBP','E','FC','SH','SF'].map(r => b(r, 'warn')).join('')}</div>
-    <p class="hint">ゴロ・フライ・ライナーはアウトのとき。安打や失策の打球の種類は上で選びます。</p>
+    <div class="lbl">打球にならない結果は1タップで記録</div>
+    <div class="grid4">${nc('Ks','空振り三振','out')}${nc('Kl','見逃し三振','out')}${nc('BB','四球','warn')}${nc('HBP','死球','warn')}</div>
+    <p class="hint">位置と結果の両方を選ぶと、表記（例：左三）が出て記録できます。図をタップした位置があれば、その位置を優先します。位置なしで記録するときは「なし」を選びます。</p>
   </div>
   ${bats.length ? `<div class="card"><h2>この日の打席 <button class="btn ghost" style="min-height:0;padding:6px 10px;font-size:13px" data-act="batUndo">最後を取り消す</button></h2>
-    <div class="abs">${bats.map((e, i) => `<span class="ab ${BAT[e.r].hit ? 'h' : ''}">${i+1}. ${BAT[e.r].l}${e.x != null ? '・' + SEC[sector(e.x, e.y)] : ''}${e.rbi ? ` ${e.rbi}打点` : ''}</span>`).join('')}</div></div>` : ''}`;
+    <div class="abs">${bats.map((e, i) => `<span class="ab ${BAT[e.r].hit ? 'h' : ''}">${i+1}. ${notation(e)}${e.rbi ? ` ${e.rbi}打点` : ''}</span>`).join('')}</div></div>` : ''}`;
 }
 
 /* 守備入力 */
@@ -1249,7 +1302,7 @@ function ensureRecSession(){
   const o = recOrder(g), i = recIdx(o);
   if (i >= 0) { ui.recNo = i; ui.sid = gameSession(g, ui.pid, true).id; }
 }
-function paText(e){ return BAT[e.r].l + (e.x != null ? '・' + SEC[sector(e.x, e.y)] : ''); }
+function paText(e){ return notation(e); }
 function gameRecTab(g, p){
   const o = recOrder(g), ci = recIdx(o);
   const cur = ci >= 0 ? gameSession(g, p.id, false) : null;
@@ -1373,6 +1426,7 @@ function gameSumSheet(){
       <div class="line-stats"><span>ゴロ<b>${A.bt.G}</b></span><span>フライ<b>${A.bt.F}</b></span><span>ライナー<b>${A.bt.L}</b></span>${A.none ? `<span>方向なし<b>${A.none}</b></span>` : ''}</div></div>
     ${subs}
     <div class="card" style="gap:8px"><h2>投手陣 <small>この試合の投球記録</small></h2>${A.pit.N ? `<div class="line-stats"><span>投球数<b>${A.pit.N}</b></span><span>ストライク率<b>${pct(div(A.pit.str, A.pit.N))}</b></span><span>対戦打者<b>${A.pit.BF}</b></span><span>奪三振<b>${A.pit.K}</b></span><span>四球<b>${A.pit.BB}</b></span><span>死球<b>${A.pit.HBP}</b></span></div>` : '<p class="hint">投球の記録はありません。</p>'}</div>
+    <div class="card" style="gap:6px"><h2>打席の結果 <small>スコアブック表記</small></h2>${A.ss.filter(s => (s.bat || []).length).map(s => `<div style="font-size:14px"><b>${esc(nm(s.playerId))}</b> <span class="m">${esc((s.bat || []).map(notation).join(' / '))}</span></div>`).join('') || '<p class="hint">打席の記録はありません。</p>'}</div>
     <div class="card" style="gap:8px"><h2>選手別 <small>打順どおり</small></h2><div class="tbl"><table style="min-width:0;font-size:12px"><thead><tr><th class="l">選手</th><th>打数</th><th>安打</th><th>打点</th><th>四死球</th><th>三振</th><th>守備機会</th><th>失策</th></tr></thead><tbody>${rows}${total}</tbody></table></div></div>
     <p class="hint">打数は四死球・犠打・犠飛を除く打席。被打率は投球入力で打席が終わった球（安打・凡打・失策・三振）のうち安打の割合。守備率は(機会−失策)÷機会で、機会はゴロ・フライ・送球の成功とエラーの合計です。守備位置を付けていない回数記録も含みます。</p>`
     : '<p class="hint">この試合の記録はまだありません。「この試合を記録する」から入力してください。</p>'}
@@ -1513,9 +1567,32 @@ function sheet(){
 }
 
 /* ---------- 操作 ---------- */
+function commitBat(code, o = {}){
+  const s = sess(); if (!s) return false;
+  const d = BAT[code], ev = {r:code};
+  if (ui.bat.rbi) ev.rbi = ui.bat.rbi;
+  if (o.ks) ev.ks = o.ks;
+  if (!d.nb) {
+    const fp = o.f && /^[1-9]$/.test(o.f) ? o.f : null, r1 = n => Math.round(n * 10) / 10;
+    if (ui.bat.pt) { ev.x = ui.bat.pt.x; ev.y = ui.bat.pt.y; ev.m = 1; if (fp) ev.f = fp; }
+    else if (fp) { ev.x = r1(POS_XY[fp][0] + (Math.random() - .5) * 8); ev.y = r1(POS_XY[fp][1] + (Math.random() - .5) * 8); ev.f = fp; }
+    ev.bt = d.bt || ui.bat.bt || DEFBT[code] || 'L';
+    const pl = S.players[s.playerId]; if (pl && pl.bats === 'S' && ui.bat.side) ev.h = ui.bat.side;
+  }
+  s.bat = (s.bat || []).concat([ev]);
+  put('sessions', ui.sid, s);
+  ui.bat.pt = null; ui.bat.rbi = 0; ui.bat.bt = null; ui.bat.fpos = null; ui.bat.res = null;
+  let nx = '';
+  const rg = recGame();
+  if (rg) {
+    const o2 = recOrder(rg), i = recIdx(o2), j = i >= 0 ? recNext(o2, i) : -1;
+    if (j >= 0 && j !== i) { recSelect(rg, o2, j); nx = `　次：${S.players[o2[j].pid].name}`; }
+  }
+  toast(`${s.bat.length}打席目：${notation(ev)} を記録${nx}`);
+}
 let toastT;
 function toast(m){ const t = $('#toast'); t.textContent = m; t.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => t.style.opacity = 0, 1800); }
-function selectPlayer(id){ ui.pid = id; ui.sid = null; ui.creating = false; ui.bat.pt = null; ui.bat.side = null; ui.pitch.zone = null; ui.pos = null; ui.fpos = 'all'; ui.fses = 'all'; ui.hlBat = null; ui.hlPa = null; savePrefs(); }
+function selectPlayer(id){ ui.pid = id; ui.sid = null; ui.creating = false; ui.bat.pt = null; ui.bat.side = null; ui.bat.fpos = null; ui.bat.res = null; ui.pitch.zone = null; ui.pos = null; ui.fpos = 'all'; ui.fses = 'all'; ui.hlBat = null; ui.hlPa = null; savePrefs(); }
 function commitGame(){
   const d = ui.sheet.draft;
   if (!d.date) { toast('日付を入力してください'); return null; }
@@ -1732,25 +1809,18 @@ document.addEventListener('click', e => {
     },
     clearPt(){ ui.bat.pt = null; },
     side(){ ui.bat.side = ui.bat.side === v ? null : v; },
-    bt(){ ui.bat.bt = v; },
+    bt(){ ui.bat.bt = ui.bat.bt === v ? null : v; },
     rbi(){ ui.bat.rbi = +v; },
-    bat(){
-      const s = sess(); if (!s) return;
-      const d = BAT[v], ev = {r:v};
-      if (ui.bat.rbi) ev.rbi = ui.bat.rbi;
-      if (!d.nb) { if (ui.bat.pt) { ev.x = ui.bat.pt.x; ev.y = ui.bat.pt.y; } ev.bt = d.bt || ui.bat.bt; const pl = S.players[s.playerId]; if (pl && pl.bats === 'S' && ui.bat.side) ev.h = ui.bat.side; }
-      s.bat = (s.bat || []).concat([ev]);
-      put('sessions', ui.sid, s);
-      ui.bat.pt = null; ui.bat.rbi = 0;
-      let nx = '';
-      const rg = recGame();
-      if (rg) {
-        const o = recOrder(rg), i = recIdx(o), j = i >= 0 ? recNext(o, i) : -1;
-        if (j >= 0 && j !== i) { recSelect(rg, o, j); nx = `　次：${S.players[o[j].pid].name}`; }
-      }
-      toast(`${s.bat.length}打席目：${d.l}${ev.x != null ? '（' + SEC[sector(ev.x, ev.y)] + '）' : ''} を記録${nx}`);
+    bat(){ return commitBat(v); },
+    batNC(){ return commitBat(v === 'Ks' || v === 'Kl' ? 'K' : v, v === 'Ks' ? {ks:'s'} : v === 'Kl' ? {ks:'l'} : {}); },
+    bfp(){ ui.bat.fpos = ui.bat.fpos === v ? null : v; },
+    bres(){ ui.bat.res = ui.bat.res === v ? null : v; },
+    batOk(){
+      const res = ui.bat.res, fp = ui.bat.fpos;
+      if (!res || !(fp || ui.bat.pt)) { toast('守備位置と結果を選んでください'); return false; }
+      return commitBat(res, {f:fp});
     },
-    batUndo(){ const s = sess(); if (!s || !s.bat.length) return; const r = s.bat.pop(); put('sessions', ui.sid, s); toast(`${BAT[r.r].l} を取り消しました`); },
+    batUndo(){ const s = sess(); if (!s || !s.bat.length) return; const r = s.bat.pop(); put('sessions', ui.sid, s); toast(`${notation(r)} を取り消しました`); },
     fld(){
       const s = sess(); if (!s) return; const k = el.dataset.k, pos = curPos(S.players[ui.pid] || {});
       s.fp = s.fp || {}; s.fp[pos] = s.fp[pos] || emptyField(); s.fp[pos][k] = s.fp[pos][k] || {ok:0, err:0}; s.fp[pos][k][v]++;
