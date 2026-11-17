@@ -1,11 +1,11 @@
 // Cloudflare Worker: Basic 認証 + D1 (docs) + R2 (動画) + 静的アセット委譲
 // 依存なし。純粋関数は export してテスト可能。
 
-export const MAX_DOC_BYTES = 256 * 1024;
-export const MAX_BLOB_BYTES = 60 * 1024 * 1024;
-export const MAX_FILES = 10000;
-export const MAX_TOTAL_BYTES = 9 * 1024 * 1024 * 1024;
-export const ALLOWED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'image/jpeg', 'image/png'];
+const MAX_DOC_BYTES = 256 * 1024;
+const MAX_BLOB_BYTES = 60 * 1024 * 1024;
+const MAX_FILES = 10000;
+const MAX_TOTAL_BYTES = 9 * 1024 * 1024 * 1024;
+const ALLOWED_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'image/jpeg', 'image/png'];
 
 const NAME_RE = /^[A-Za-z0-9_\-.~:@+]{1,200}$/;
 const BLOB_ID_RE = /^[0-9a-f]{32}$/;
