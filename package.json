@@ -1,0 +1,15 @@
+{
+  "name": "baseball-hawks",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute baseball-hawks --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute baseball-hawks --local --file=schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
