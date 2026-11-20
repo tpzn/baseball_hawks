@@ -1131,6 +1131,7 @@ function teamPlayers(){
   const list = players().filter(p => left ? !isActive(p) : isActive(p)).sort(byNo);
   return `<div class="card" style="gap:8px">${seg('pstat', ui.pstat, [['active','在籍'],['left','退団・休部']], 'tall')}
     <button class="btn primary" data-act="addPlayer">＋ 選手を追加</button></div>
+  ${left ? '' : `<div class="card row between" style="gap:8px"><span class="lbl">在籍の学年を一括変更</span><span class="row"><button class="btn sm ghost" data-act="gradeShift" data-v="-1">学年 −1</button><button class="btn sm ghost" data-act="gradeShift" data-v="1">学年 +1</button></span></div>`}
   <div class="card"><h2>${left ? '退団・休部' : '在籍'} <small>${list.length}人</small></h2>
     ${list.length ? `<div class="list">${list.map(p => `<button class="item" data-act="editPlayer" data-v="${p.id}" style="min-height:56px">
       <span class="d">${esc(p.number ?? '') || '–'}</span>
@@ -1571,6 +1572,23 @@ function sheet(){
 }
 
 /* ---------- 操作 ---------- */
+// 在籍かつ学年が 1〜6 の選手の学年を一括で ±1。範囲外になる人・未設定の人・退団済みは変更しない
+async function shiftGrades(d){
+  const inR = n => n >= 1 && n <= 6;
+  const act = activePlayers(), set = act.filter(p => p.grade !== '' && p.grade != null && !isNaN(parseInt(p.grade)));
+  const ok = set.filter(p => inR(parseInt(p.grade)) && inR(parseInt(p.grade) + d)), skip = set.length - ok.length;
+  if (!ok.length) { toast(set.length ? `学年を変えられる選手がいません（範囲外 ${skip}人）` : '学年が設定された在籍選手がいません'); return; }
+  const msg = `在籍${ok.length}人の学年を${d > 0 ? '+1' : '−1'}します（1〜6年の範囲外になる${skip}人と、学年未設定・退団の選手は変更しません。卒団・退団の処理はしません）。よろしいですか？`;
+  if (!confirm(msg)) return;
+  let done = 0; const failed = [];
+  for (const p of ok) {
+    const {id, ...rest} = p, data = {...rest, grade:String(parseInt(p.grade) + d)};
+    try { await backend.set('players/' + id, data); S.players[id] = data; done++; }
+    catch (e) { failed.push(p.name); }
+  }
+  render();
+  toast(failed.length ? `${done}人を更新、${failed.length}人は保存に失敗（${failed.slice(0, 3).join('、')}${failed.length > 3 ? '…' : ''}）。成功した人は更新済みなので、再実行せず失敗した人は個別に編集してください` : `${done}人の学年を${d > 0 ? '+1' : '−1'}しました${skip ? `（範囲外の${skip}人はそのまま）` : ''}`);
+}
 function commitBat(code, o = {}){
   const s = sess(); if (!s) return false;
   const d = BAT[code], ev = {r:code};
@@ -1624,6 +1642,7 @@ document.addEventListener('click', e => {
   if (el.dataset.act === 'closeSheet' && e.target.closest('[data-stop]') && e.target !== el) return;
   const v = el.dataset.v;
   const A = {
+    gradeShift(){ shiftGrades(+v); return false; },
     pickToggle(){ ui.pick = !ui.pick; },
     editCur(){ const p = curPlayer(); if (!p) return false; ui.pick = false; ui.sheet = {id:p.id}; },
     tab(){ ui.pick = false; ui.tab = v; savePrefs(); window.scrollTo(0, 0); if (v === 'rec') ensureRecSession(); },
